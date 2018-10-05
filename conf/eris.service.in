@@ -1,0 +1,25 @@
+[Unit]
+Description=eris binary cache server
+Documentation=man:eris(8) https://thoughtpolice.github.io/eris
+
+After=network.target
+
+[Service]
+Type=forking
+PIDFile=/tmp/eris.pid
+
+DynamicUser=true
+IPAccounting=true
+
+ProtectHome=yes
+ProtectSystem=full
+PrivateTmp=yes
+
+Restart=always
+RestartSec=5s
+ExecStart=@NIXOUT@/bin/eris
+ExecReload=@NIXOUT@/bin/eris
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

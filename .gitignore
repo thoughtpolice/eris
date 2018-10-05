@@ -1,0 +1,9 @@
+/eris.conf
+*.sk
+*.pk
+
+/result*
+/*.pid
+*.tmp
+*~
+*#

@@ -1,0 +1,320 @@
+* Demo: Eris with CloudFlare and Packet.net
+
+How to deploy your own binary cache, using [[https://www.cloudflare.com][CloudFlare]], [[https://www.packet.net][Packet.net]], and Eris.
+
+** Table of Contents :TOC_3_gh:
+- [[#demo-eris-with-cloudflare-and-packetnet][Demo: Eris with CloudFlare and Packet.net]]
+  - [[#the-basic-idea][The basic idea]]
+    - [[#getting-started][Getting started]]
+  - [[#create-a-new-packetnet-instance][Create a new Packet.net instance]]
+  - [[#configure-your-cloudflare-dns-settings][Configure your CloudFlare DNS settings]]
+    - [[#important-side-note-disable-all-cloudflare-caching-via-page-rules][Important side note: disable all CloudFlare caching via Page Rules]]
+  - [[#create-a-set-of-keys-for-signatures][Create a set of keys for signatures]]
+  - [[#sync-your-packetnet-nixos-hardware-configuration][Sync your Packet.net NixOS hardware configuration]]
+  - [[#build-and-copy-the-nixos-closure][Build and copy the NixOS closure]]
+  - [[#deployswitch-the-configuration][Deploy/switch the configuration]]
+    - [[#optional-step-reboot][Optional step: reboot]]
+  - [[#ensure-the-eris-service-is-running][Ensure the Eris service is running]]
+  - [[#test-by-copying-files-to-a-local-store][Test by copying files to a local store]]
+  - [[#done-whats-next][Done. What's next?]]
+    - [[#add-the-caches-public-key-to-your-trusted-public-keys][Add the cache's public key to your ~trusted-public-keys~]]
+    - [[#push-objects-into-the-store-from-remote-locations][Push objects into the store from remote locations]]
+    - [[#look-at-your-cloudflare-analytics][Look at your CloudFlare analytics]]
+    - [[#start-enabling-private-users][Start enabling private users]]
+    - [[#hack-the-config-file-further][Hack the config file further]]
+    - [[#check-out-the-nixos-configuration-and-eris-module][Check out the NixOS configuration and Eris module]]
+    - [[#try-some-more-exotic-deployments][Try some more exotic deployments]]
+    - [[#hack-the-codebase-itself][Hack the codebase itself]]
+
+** The basic idea
+
+The basic idea is pretty simple: we want to host a Nix binary cache -- maybe for
+ourselves, our own private project, maybe for ~$WORK~ -- and we want it to take
+little fuss, without being too expensive to run. Bandwidth is typically
+expensive at most providers, and serving tons of files over the network can
+actually be fairly CPU intensive for a cache that's intended to be hit
+frequently. Also -- it'd be nice to use NixOS, both for server administration,
+and since it comes with easy support for running Eris.
+
+*** Getting started
+
+** Create a new Packet.net instance
+
+#+BEGIN_SRC bash
+export PACKET_IP="abc.wx.y.z"
+ssh "root@${PACKET_IP}" -- nixos-version
+#+END_SRC
+
+** Configure your CloudFlare DNS settings
+
+Now that your instance has been started, you should configure ~A~ and ~AAAA~
+records for your public IPv4/IPv6 addresses that you were assigned by Packet.
+
+*Be sure to enable CloudFlare's security and routing features by clicking on the
+"CloudFlare" icon!* If you don't do this, *your requests will not route through
+CloudFlare, and you will be charged for egress cache bandwidth.*
+
+Once you have DNS records set up, you're ready to deploy things. But you need to
+make one slight modification...
+
+*** Important side note: disable all CloudFlare caching via Page Rules
+
+At this point, there's another important consideration we should take note of:
+*turn off caching in CloudFlare for your cache site, via a Page Rule*.
+
+You might be wondering: /"Why would I want to do that? Don't I want CloudFlare
+to cache my Nix objects?"/ and the answer is simple: you might want that, but
+more importantly, you want to act like a good neighbor for other CloudFlare
+customers.
+
+Here's the deal: CloudFlare and Packet have entered into an agreement called the
+Bandwidth Alliance, meaning traffic between the two systems is actually not
+billed in the same way as normal egress traffic. Effectively, any egress/ingress
+bandwidth between Packet and CloudFlare is totally free. Considering egress
+bandwidth prices are very expensive on most Cloud Providers, that's an excellent
+thing to hear. This means that, for our binary cache, the only rates we pay are
+flat-fee rates, based on the hardware prices.
+
+But at the same time, CloudFlare /is not a cache for arbitrary content, and not
+an unlimited cache for freeloading./ At least at one point, I believe
+CloudFlare's EULA specifically ruled out "abusive" uses of their service such as
+loading large amounts of non-WWW content (images, css, html, etc) into the
+cache. It's obviously geared for "web" content, and Nix binary objects for a
+package manager are pretty clear non-web uses. And while generally they aren't
+stingy about free-tier users, constant abuse will (probably) be noticed, since
+you're eating up disproportionate resources. After all, if you're getting free
+bandwidth -- it would be nice to be a good neighbor.
+
+In particular, all of the cache space /you/ use on big binary objects is cache
+space that could better go to other customers for their web content, especially
+customers in their free or lower-paid tiers. Of course, CloudFlare's bandwidth
+*is* free, but we're talking about their caches. Do you /really/ want to abuse
+their cache, too, after you're already leveraging their network for free egress?
+
+I view this as a pretty reasonable tradeoff: free egress bandwidth, and we get
+CloudFlare's features like DDOS protection and endpoint security, but we turn
+the cache off, and let the requests directly hit our servers. The least you can
+do is pay off your free egress by using some CPU cycles -- especially since
+those cycles have flat-rate costs.
+
+A good page rule might look like this, assuming your cache is intended to be
+available at ~http[s]://cache.z0ne.pw/~:
+
+#+BEGIN_SRC
+*cache.z0ne.pw/*
+#+END_SRC
+
+Then, for the settings on this particular route, just be sure to enable *Caching
+Level: Bypass*. This applies to HTTP and HTTPS endpoints on all objects served
+by Eris, and completely disables caching for all of them.
+
+Now your server is protected (origin IP obscured, DDOS protected, automatic SSL)
+-- but you're also acting like a good neighbor who won't hurt other, more
+legitimate web-caching uses. Win-win!
+
+** Create a set of keys for signatures
+
+By default, Nix requires packages that it downloads from trusted caches to be
+signed by a trusted, cryptographic key. We'll quickly generate these keys for
+the demo.
+
+First, ~ssh root@${PACKET_IP}~, and then:
+
+#+BEGIN_SRC bash
+mkdir /etc/eris
+nix-store --generate-binary-cache-key "${DOMAIN_NAME}-1" /etc/eris/sign.sk /etc/eris/sign.pk
+chown -R root:adm /etc/eris/
+chmod 0640 /etc/eris/sign.pk
+exit
+#+END_SRC
+
+The ~eris~ systemd service is dynamically made part of the ~adm~ group, so we
+modify the key files to be owned by that group, and chmod ~0640~ to allow owning
+user and group to read the private key.
+
+** Sync your Packet.net NixOS hardware configuration
+
+When you create a NixOS instance using Packet.net, a large amount of
+prepopulated information about the instance is already provided. In true NixOS
+form, these settings are provided as a set of modules, by default available
+under the ~/etc/nixos/packet/~ directory, on your instance. Your module simply
+needs to include ~/etc/nixos/packet.nix~ in order to use them.
+
+For the purposes of this document, I'll be building the NixOS closure image for
+my Packet machine locally, then copying it to the remote machine and deploying
+it.
+
+Sync your configuration like so:
+
+#+BEGIN_SRC bash
+cd ./demo/
+rsync -e ssh -rv root@"${PACKET_IP}":/etc/nixos/ packet
+#+END_SRC
+
+This will create a new ~./demo/packet/~ directory, containing the instance
+configuration data. We won't be modifying this, we'll just-reuse it.
+
+Our ~configuration.nix~ has a line similar to the following:
+
+#+BEGIN_SRC nix
+{
+  imports = [ ./packet/packet.nix ];
+  # ... more configuration ...
+}
+#+END_SRC
+
+With these files in the proper place, we can build our Packet.net image locally,
+and push it to the remote server. All of the prepopulated hardware information
+(disks, hostname, etc) will be filled out automatically.
+
+** Build and copy the NixOS closure
+
+This will build and copy the entire NixOS closure into the remote machine, using
+the correct hardware settings for the instance in question:
+
+#+BEGIN_SRC bash
+export Q=$(nix-build -QA system)
+time nix copy --to "ssh://root@${PACKET_IP}" $Q
+#+END_SRC
+
+** Deploy/switch the configuration
+
+Now, simply switch the configuration. You can do this remotely.
+
+#+BEGIN_SRC bash
+ssh "root@${PACKET_IP}" -- "$Q"/bin/switch-to-configuration switch
+#+END_SRC
+
+*** Optional step: reboot
+
+At this point, you can also reboot to ensure you have a clean startup (since
+doing upgrades across major NixOS versions can cause some glitches).
+
+#+BEGIN_SRC bash
+ssh "root@${PACKET_IP}" -- reboot
+#+END_SRC
+
+** Ensure the Eris service is running
+
+#+BEGIN_SRC bash
+ssh "root@${PACKET_IP}" -- systemctl status eris-git
+#+END_SRC
+
+You should see the ~systemctl status~ output show you that ~eris.git~ is active
+and running. The ~journalctl~ logs will print out the startup information (in my
+example, for a cache server named ~cache.z0ne.pw~):
+
+#+BEGIN_SRC text
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] Eris: version X.YpreN_abcdef, mode = production (mojo 8.02)
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] libev: mode 4 (epoll), nix: ver 2.1.3, store: /nix/store
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] config: using file '/nix/store/ri9imndpl9bq4rf65wgsg9132gm1z1fj-eris.conf'
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] signing: user-specified, hostname = cache.z0ne.pw-1
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] public key: cache.z0ne.pw-1:XvOZOPoECSkRGR2VaSQoE2zlqt5qRS+9Y7bAYIzA+1s=
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] Listening at "http://[::]:80"
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: [i] Listening at "https://[::]:443"
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: Server available at http://[::]:80
+Oct 16 21:48:01 cache.z0ne.pw eris[12197]: Server available at https://[::]:443
+Oct 16 21:48:01 cache.z0ne.pw systemd[1]: Started eris binary cache server.
+#+END_SRC
+
+** Test by copying files to a local store
+
+Now, you can test it by just copying an entire closure from the store somewhere
+locally. This will ensure you download the correct packages /and/ all their
+dependencies into a new location, so you can test the throughput/bandwidth of
+the system.
+
+As an example, we can just re-download the system closure we installed in the
+last step:
+
+#+BEGIN_SRC bash
+rm -rf test-store;
+nix copy --from "https://${DOMAIN_NAME}" --to file://$(pwd)/test-store $Q
+#+END_SRC
+
+This should succeed in copying all the ~.nar~ files for your system closure
+directly into the ~./test-store~ directory. Feel free to delete this -- it'll
+take up quite a bit of space -- since it's just a demonstration of everything
+working.
+
+** Done. What's next?
+
+You now have your own Nix binary cache! And it has fast, sustainable bandwidth,
+DDoS protection, and more. There are some other things you can do now:
+
+*** Add the cache's public key to your ~trusted-public-keys~
+
+Grab the public key:
+
+#+BEGIN_SRC bash
+curl https://${DOMAIN_NAME}/v1/public-key
+#+END_SRC
+
+Add this key to your ~nix.conf~ file under ~trusted-public-keys~, or use the
+~--option trusted-public-keys~ flag to set it on demand for individual commands.
+Set this up properly, and you'll permanently have a cache you can call your own!
+
+*** Push objects into the store from remote locations
+
+Now that your server is up and running, you can just start tossin' stuff in
+there! Use SSH access to copy whatever paths in you want out of your store:
+
+#+BEGIN_SRC bash
+nix copy --to "ssh://root@${PACKET_IP}" /nix/store/...
+#+END_SRC
+
+Afterwords, you'll be able to download it later. Or, maybe you'll leave it there
+forever and never even think about it again. Who knows!?
+
+*** Look at your CloudFlare analytics
+
+When you checkout your CloudFlare dashboard, you'll be able to see how much
+bandwidth you're pushing through the system. Even though your requests aren't
+cached, they do pass through CloudFlare's network, and thus are shown in
+analytic reports. Watch the numbers get higher and higher as time goes on, [[https://tvtropes.org/pmwiki/pmwiki.php/Main/SlouchOfVillainy][while
+you kick back in your comically-sized gigantic chair.]]
+
+*** Start enabling private users
+
+At this point, you probably have a boatload of treasure you'd like to keep safe.
+Turn on the ~users~ setting in the Eris configuration file (specified in
+~configuration.nix~), and keep sea-fairing pirates at bay.
+
+*** Hack the config file further
+
+The configuration file in this example is kept in the Nix store. But it might be
+better to keep it somewhere like ~/etc/eris/eris.conf~, so you can update it
+yourself more easily.
+
+You can also spice it up -- maybe use ~$ENV{...}~ in your configuration file to
+read settings out of the system environment variables. Combine it with
+~EnvironmentFile~ in ~systemd~ and who knows what could happen!
+
+Do you have what it takes to refactor the code? (Of course you do.)
+
+*** Check out the NixOS configuration and Eris module
+
+Be sure to read the NixOS configuration in ~configuration.nix~, as well as the
+Eris module (in ~../module.nix~), since they have some extra boondoggles. For
+example, it makes the build configuration more minimal, enables some newer
+features like TCP BBR, sets up custom NTP servers, and it also uses IP
+whitelist/blacklists to *only* allow CloudFlare to talk to the Eris HTTP server
+(so your egress bandwidth is *only* used by CloudFlare). Try adding a million
+more unnecessary features!
+
+*** Try some more exotic deployments
+
+As an alternative, hack the NixOS module to try and add some new features. For
+example, instead of making the server publicly available on the internet and
+using IP whitelisting to only allow CloudFlare IPs to talk to the HTTP endpoint,
+you could also try configuring CloudFlare's [[https://support.cloudflare.com/hc/en-us/articles/204899617-Authenticated-Origin-Pulls][Authenticated Origin Pulls]] to keep
+things safe. Or combine them. You could alternatively deploy the whole system
+using [[https://developers.cloudflare.com/argo-tunnel/][Argo Tunnel]], which will completely remove the need for Eris to listen on
+the internet at all, as well as any end-to-end certificate management.
+
+*** Hack the codebase itself
+
+Want to implement something more daring? Everything is broken? Try writing a
+patch or submitting an issue and we'll figure it out. Eris is written in Perl by
+an amateur, so there are probably trillions of bugs you can fix.
+

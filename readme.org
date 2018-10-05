@@ -1,0 +1,751 @@
+* Eris - a binary cache for Nix ✨
+
+[[https://img.shields.io/badge/version-0.1pre-blue.svg]] [[https://img.shields.io/badge/license-GPL%20(%3E%3D%203)-orange.svg]]
+
+Eris is an HTTP server and web application that can act as a "binary cache" for
+[[https://nixos.org/nix/][Nix]] -- it serves your ~/nix/store~ directory over an HTTP server to other
+clients on the network. This means they can download files from your
+~/nix/store~ very easily.
+
+There are several ways to host a Nix cache, including S3, [[https://nixos.org/hydra/][Hydra]], the lightweight
+(but inflexible, slow) [[https://github.com/edolstra/nix-serve][nix-serve]], as well as the newer (unknown) [[https://github.com/serokell/nix-cache][nix-cache]]. But
+Eris tries to strike a balance between usability and power. It does one thing
+and only one thing: *serve a Nix cache*. It's for when you want to serve your
+cache temporarily -- or long term, for many remote, possibly authenticated users
+-- without the complexity of setting up something like [[https://nixos.org/hydra/][Hydra]].
+
+Eris is written in Perl and built using *[[https://mojolicious.org][Mojolicious]]*.
+
+* Features
+
+- Easier to use and install than the competition.
+  - It actually has documentation, so you know how to use it.
+  - You can run it from the command line.
+  - Or run it on [[https://nixos.org][NixOS]].
+  - Or non-NixOS, via ~systemd~.
+- Powerful, flexible, Perl-like configuration language.
+  - It's like JSON, with more sigils, and comments.
+  - Comments are a useful feature in a configuration language.
+- Comes with documentation, including a ~man~ page!
+  - You're also reading a bunch of documentation right now.
+  - It's very useful to write documentation for your software projects.
+  - The source code is also well commented.
+- Supports HTTP authentication for Nix 2.0, via ~netrc~
+  - Lock away your treasure, so nobody can access it.
+  - Or run it on the internet for everyone to use.
+- Support for signed caches
+  - Or unsigned ones, if you're feeling daring.
+  - It can also read existing secret keys from a file. Reading files is
+    *serious business*!
+
+* Table of Contents :TOC_4_gh:
+- [[#eris---a-binary-cache-for-nix-][Eris - a binary cache for Nix ✨]]
+- [[#features][Features]]
+- [[#installation][Installation]]
+- [[#usage][Usage]]
+  - [[#quick-start-running-eris-standalone][Quick start: running ~eris~ standalone]]
+  - [[#quick-start-nixos-system-environment][Quick start: NixOS system environment]]
+- [[#configuration][Configuration]]
+    - [[#basic-configuration][Basic configuration]]
+    - [[#listening-ports-and-addresses][Listening ports and addresses]]
+    - [[#signing-support][Signing support]]
+      - [[#no-signature-mode]['No signature'-mode]]
+      - [[#using-pre-generated-keys][Using pre-generated keys]]
+    - [[#support-for-private-users-via-http-authentication][Support for private users via HTTP authentication]]
+    - [[#tls-support][TLS support]]
+    - [[#nixos-specific-notes][NixOS-specific notes]]
+  - [[#checking-mojolicious-server-status][Checking Mojolicious server status]]
+  - [[#full-configuration-file-reference][Full configuration file reference]]
+- [[#deployment][Deployment]]
+  - [[#running-eris-standalone][Running Eris standalone]]
+  - [[#running-eris-as-a-nixos-service][Running Eris as a NixOS service]]
+  - [[#running-eris-as-a-service-on-any-linux-distribution][Running Eris as a service on any Linux distribution]]
+- [[#http-api][HTTP API]]
+  - [[#basic-nix-http-api][Basic Nix HTTP API]]
+  - [[#eris-http-api-v1][Eris HTTP API (v1)]]
+- [[#demo-build-a-private-cache-with-cloudflare-and-packetnet][Demo: build a private cache with CloudFlare and Packet.net]]
+- [[#faq][FAQ]]
+  - [[#why-write-this][Why write this?]]
+  - [[#whats-with-the-name][What's with the name?]]
+  - [[#does-eris-handle-cache-uploads][Does Eris handle cache /uploads/?]]
+  - [[#what-about-alternative-systems-like-cachix][What about alternative systems like Cachix?]]
+  - [[#austin-you-wrote-this-in-perl][Austin, you wrote this in /Perl/?]]
+- [[#hacking][Hacking]]
+  - [[#running-eris-in-place][Running Eris in-place]]
+  - [[#running-the-tests][Running the tests]]
+  - [[#protip-running-eris-behind-ngrok][Protip: Running Eris behind Ngrok]]
+- [[#todos][TODOs]]
+  - [[#dynamic-routes][Dynamic routes]]
+  - [[#lets-encrypt-integration][Let's Encrypt integration]]
+- [[#authors][Authors]]
+- [[#license][License]]
+
+* Installation
+
+Eris requires you to have the [[https://nixos.org/nix/][Nix package manager]] *version 2.0 or later*
+installed. It may be installed on any standard Intel/AMD Linux system
+(regardless of the distribution choice), as well as other hardware platforms
+such as AArch64 where Nix is available. It might work on macOS. See the [[http://nixos.org/nix/][Nix]]
+website for more information.
+
+Provided you have installed Nix, no further work is necessary to get Eris to
+serve your Nix store as a binary cache. Read on.
+
+*NixOS Users*: There is an Eris module for NixOS that makes setup near-automatic
+using ~configuration.nix~, as you expect.
+
+Eris currently *is not available in upstream Nixpkgs*. Therefore, you must
+install it from this repository, which is where the package and NixOS module are
+both located.
+
+#+BEGIN_SRC bash
+$ git clone https://github.com/thoughtpolice/eris.git && cd eris/
+$ nix-env -i $(nix-build --no-link -Q release.nix -A eris)
+...
+installing 'eris-X.YpreN_XXXXXXX'
+$ nix-env -q | grep eris
+eris-X.YpreN_XXXXXXX
+$
+#+END_SRC
+
+You're done, and there should now be an ~eris~ binary available in your user
+environment and on your ~$PATH~ now (from under ~$HOME/.nix-profile/bin~).
+
+The above command installs ~eris~ with a fixed version of the Nix package set,
+ensuring that it's correctly built against a known set of tested dependencies.
+(This is specified in ~release.nix~ and ~nix/nixpkgs.json~.)
+
+* Usage
+
+** Quick start: running ~eris~ standalone
+
+Now that ~eris~ is installed, you can quickly run it out of the box with
+no further configuration:
+
+#+BEGIN_SRC bash
+$ eris -f
+[Thu Oct  4 14:29:48 2018] [info] Listening at "http://*:8080"
+Server available at http://127.0.0.1:8080
+[Thu Oct  4 14:29:48 2018] [info] Manager 50265 started
+[Thu Oct  4 14:29:48 2018] [info] Worker 51617 started
+[Thu Oct  4 14:29:48 2018] [info] Worker 51618 started
+[Thu Oct  4 14:29:48 2018] [info] Worker 51619 started
+...
+#+END_SRC
+
+Congratulations! Your ~/nix/store~ is now being served on
+~https://localhost:8080~. *Be careful if you have secrets in your Nix store!*
+This won't bind to public IPs by default, only ~localhost~, but you should still
+be aware of that. You can hit ~Ctrl-C~ at any time to stop this server.
+
+If you're not using NixOS, you can skip to the [[Configuration]] section.
+
+** Quick start: NixOS system environment
+
+Because Eris currently isn't available in [[https://github.com/nixos/nixpkgs][upstream nixpkgs]], if you wish to use
+and manage Eris as a NixOS module, you must clone this repository, and manually
+add the eris ~module.nix~ file to your ~configuration.nix~.
+
+Let's assume your configuration is located at ~/etc/nixos/configuration.nix~,
+and you've cloned Eris into ~/etc/nixos/eris/~. Then you can import the Eris
+module into your configuration like so:
+
+#+BEGIN_SRC nix
+{ config, pkgs, lib, ... }:
+
+{
+  imports = [
+    ./eris/module.nix
+  ];
+
+  # ...
+}
+
+#+END_SRC
+
+Now you have ~services.eris-git~ available. You can enable Eris on ~localhost~
+just like the above manual command by setting the option:
+
+#+BEGIN_SRC nix
+{ config, pkgs, lib, ... }:
+
+{
+  services.eris-git.enable = true;
+}
+
+#+END_SRC
+
+If you don't want to clone a git repository first, you can also use *Import From
+Derivation* (IFD) in order to have Nix clone the repository and import the
+module at evaluation time. First, clone a copy of ~eris.git~ and get the
+revision and hash you need:
+
+#+BEGIN_SRC bash
+$ nix run nixpkgs.nix-prefetch-git -c nix-prefetch-git \
+    https://github.com/thoughtpolice/eris.git
+...
+git revision is 22973527727a3747349f2d6f234f20fd459f05c3
+path is /nix/store/61411d70dydyqp220n1kd323gipq6skn-eris
+git human-readable version is -- none --
+Commit date is 2018-10-03 13:45:42 +0100
+hash is 0qaw9kjj26xm3lq339z4bzr8vy3d997yxcapc9z9217ahzpgqhws
+{
+  "url": "https://github.com/thoughtpolice/eris",
+  "rev": "22973527727a3747349f2d6f234f20fd459f05c3",
+  "date": "2018-10-03T13:45:42+01:00",
+  "sha256": "0qaw9kjj26xm3lq339z4bzr8vy3d997yxcapc9z9217ahzpgqhws",
+  "fetchSubmodules": false
+}
+#+END_SRC
+
+Then, import this using IFD in your ~configuration.nix~:
+
+#+BEGIN_SRC nix
+{ config, pkgs, lib, ... }:
+
+let
+  eris = pkgs.fetchFromGitHub {
+    owner  = "thoughtpolice";
+    repo   = "eris";
+    rev    = "22973527727a3747349f2d6f234f20fd459f05c3";
+    sha256 = "0qaw9kjj26xm3lq339z4bzr8vy3d997yxcapc9z9217ahzpgqhws";
+  };
+in
+{
+  imports = [
+    "${eris}/module.nix"
+  ];
+
+  # ...
+  services.eris-git.enable = true;
+}
+#+END_SRC
+
+*Note*: IFD is not available in restricted build environments (such as Hydra CI)
+servers, so this method is not adviseable if you wish to continuously integrate
+your NixOS configuration files. This method works fine however for simple
+systems or workstations.
+
+* Configuration
+
+Eris is configured using [[https://mojolicious.org/perldoc/Mojolicious/Plugin/Config][Mojolicious::Plugin::Config]], which uses a Perl-like
+configuration format that can contain live code for flexibility in deployment.
+
+*** Basic configuration
+
+By default, Eris starts up by reading a file named ~eris.conf~, *in the CWD
+where you execute it*.
+
+This file is not JSON, but a Perl-based configuration file that can use general
+Perl code for configuration. The general form looks like this:
+
+#+BEGIN_SRC perl
+{
+  option1 => 'value',    # strings
+  option2 => 1,          # integers
+  option3 => [ 1, 2 ],   # arrays
+  option4 => {           # hashes ("objects")
+    param1 => 'value1',
+    param2 => 'value2',
+  },
+  option5 => $ENV{VALUE} || "default", # read '$VALUE' from the environment
+}
+#+END_SRC
+
+Comments start with ~#~, and trailing commas are allowed in all positions, just
+as regular Perl code allows.
+
+The last example of ~option5~ shows how to use the Perl-based nature to your
+advantage, by instead reading a value out of the environment at startup time,
+with a default option provided. By utilizing this, you can get a lot of
+flexibility out of the configuration file format with pretty minimal fuss.
+
+*** Listening ports and addresses
+
+Listening ports and addresses for the HTTP server are configured through the
+~listen~ option in ~eris.conf~. This parameter takes a list of strings,
+specified as URLs, which specify the connection information, somewhat like an
+ODBC/JDBC connection string. The configuration is best expressed by some
+examples:
+
+#+BEGIN_SRC perl
+{
+  listen => [
+    'http://*:3000',         # listen on all IPv4 interfaces, on port 3000
+    'http://[::]:3000',      # same, but on all IPv4 and IPv6 interfaces
+    'http://[::1]:3000',     # IPv6 only
+
+    'http://*:3000?reuse=1', # enable SO_REUSEPORT
+    'https://*:4000',        # listen on HTTPS, as well. uses built-in testing certs
+
+    # specify a custom certificate and keyfile
+    'https://*:3000?cert=/x/server.crt&key=/y/server.key',
+
+    # listen on a (percent-encoded) unix socket path, e.g. for frontend proxies
+    # this listens in /tmp/eris.sock
+    'http+unix://%2Ftmp%2Feris.sock',
+  ]
+}
+#+END_SRC
+
+*** Signing support
+
+Packages are signed "on the fly" when served by the cache. You can configure
+signing in one of three modes:
+
+    1. No signing (the default mode).
+
+    2. Hard-coded keys, generated/procured ahead of time.
+
+These three behaviors are controlled using the ~signing~ option in ~eris.conf~.
+
+**** 'No signature'-mode
+
+The default mode is to not use signatures at all, which can be specified using
+the ~none~ setting:
+
+#+BEGIN_SRC perl
+{
+  signing => 'none',
+}
+#+END_SRC
+
+**** Using pre-generated keys
+
+Pre-generated keys are also easy; rather than a freeform string, you simply use
+an options hash to specify the hostname, and the files containing the
+public and private keys.
+
+Assuming you generate a set of keys using ~nix-store --generate-binary-cache-key
+cache.example.com-1 /etc/nix/cache.sk /etc/nix/cache.pk~, you can configure Eris
+with:
+
+#+BEGIN_SRC perl
+{
+  signing => {
+    host    => 'cache.example.com-1',
+    public  => '/etc/nix/cache.pk',
+    private => '/etc/nix/cache.sk',
+  },
+}
+#+END_SRC
+
+*** Support for private users via HTTP authentication
+
+You can add support for basic HTTP authentication via the ~users~ field in
+~eris.conf~, which contains a list of ~user:password~ strings.
+
+#+BEGIN_SRC perl
+{
+  users => [
+    'austin:rules',
+    'david:rocks'
+  ],
+}
+#+END_SRC
+
+Given the above configuration, you can test the endpoint with ~curl~:
+
+#+BEGIN_SRC bash
+# this works
+curl -u austin:rules http://eris/nix-cache-info
+
+# this fails
+curl -u david:rules http://eris/nix-cache-info
+
+# and so does this
+curl http://eris/nix-cache-info
+#+END_SRC
+
+Once this configuration is in place, clients can authenticate with the server
+using a standard cURL ~.netrc~ configuration file. This file takes the following
+form:
+
+#+BEGIN_SRC
+machine <hostname>
+login <username>
+password <password>
+...
+#+END_SRC
+
+Entries may be repeated to provide multiple logins for different caches.
+
+Now, you can use the option ~--option netrc-file /path/to/netrc~ with any of
+your ~nix~ commands in order to authenticate properly, e.g.
+
+#+BEGIN_SRC bash
+nix --option netrc-file /path/to/netrc copy --from http://.../ /nix/store/...
+#+END_SRC
+
+*NOTE*: The path must be absolute.
+
+Check out [[https://ec.haxx.se/usingcurl-netrc.html][the cURL manual page for ~.netrc~ files]], and the [[https://nixos.org/nix/manual/#name-11][nix.conf manual]]
+(particularly the ~netrc-file~ option) for more information.
+
+*** TLS support
+
+TLS support is controlled by the ~listen~ parameter in ~eris.conf~, as shown
+earlier. In particular, simply specifying an HTTPS URI in the ~listen~
+configuration will use a built-in set of testing certificates, distributed with
+Mojolicious:
+
+#+BEGIN_SRC perl
+{
+  listen => ['https://*:443'],
+}
+#+END_SRC
+
+But you almost _definitely do not want to do this_, since there's no way for
+clients to securely verify the certificate. Provided you do have a signed, valid
+certificate, specifying the key and certificate is done with the ~&cert=~ and
+~&key=~ URL parameters:
+
+#+BEGIN_SRC perl
+{
+  listen => [ 'https://*:443?cert=/etc/eris/ssl.crt&key=/etc/eris/ssl.key' ],
+}
+#+END_SRC
+
+*** NixOS-specific notes
+
+There are a few NixOS-specific things to note, enforced primarily by the NixOS
+module and systemd, which users might want to be aware of:
+
+    1. *Eris has no visible /tmp dir*. Do not try to include or write files
+       here; they will never be visible by any other service, due to
+       ~PrivateTemp=true~ being specified for systemd.
+
+    2. *Eris has no assigned user*. The module uses systemd's ~DynamicUser=true~
+       directive, so UIDs are assigned dynamically to the service. (This could
+       be changed in the future but requires some upstream NixOS coordination
+       for reserving UIDs.)
+
+    3. *Eris is part of the ~adm~ group*. The intention is that members of the
+       ~adm~ group will be able to do things like rotate signing keys, located
+       under ~/etc/eris~; these actions don't require full admin privileges, but
+       ~eris~ will want to read the results.
+
+    3. *Eris can only read ~/etc/eris~ and almost nothing else. It cannot write
+       there*. We use an array of systemd's filesystem namespace features to
+       essentially allow the path ~/etc/eris~ to be bind-mounted inside the
+       service.
+
+       This means that even though ~eris~ is part of the ~adm~ group, it cannot
+       read almost anything else in ~/etc~ anyway.
+
+       Due to this combination of features, if you would like to keep your keys,
+       etc in a safe, read-only place, it's suggested to put them in ~/etc/eris~
+       and mark them as read-only files with strict visibility permission.
+
+** Checking Mojolicious server status
+
+Eris uses the [[https://metacpan.org/pod/Mojolicious::Plugin::Status][Mojolicious::Plugin::Status]] module in order to provide some basic
+information about the running machine. The server status can be found by viewing
+~http://localhost:8080/mojo-status~, which will show you the server uptime,
+currently connected clients, and more, formatted as a nice, live HTML page.
+
+You must enable the status plugin by setting the configuration value ~status =>
+1~ in ~eris.conf~
+
+** Full configuration file reference
+
+Check out [[https://github.com/thoughtpolice/eris/blob/master/conf/eris.conf.example][./conf/eris.conf.example]] in this repository for the full
+configuration file reference, along with some examples.
+
+* Deployment
+
+There are several options for running the cache server, but the following three
+outline the most typical scenarios.
+
+** Running Eris standalone
+
+As you saw above, you can easily install Eris into the Nix environment of your
+user account, making it trivial and easy to quickly export your Nix store. (You
+can even run it directly from the source code repository, too. See [[Hacking]] for
+more.)
+
+In the original example above, we executed the standalone ~eris~ program in
+/foreground mode/, using the ~-f~ flag. By default, ~eris~ executes in daemon
+mode: it forks a process, writes a ~.pid~ file, and then detaches from the host
+shell.
+
+This means if you simply log into a machine and run ~eris~, it will immediately
+fork and start running. When you log out, it will stay running. That's all you
+have to do! In order to stop the running daemon, just execute ~eris -s~, which
+will kill the prior worker processes, using the ~.pid~ file.
+
+And, of course, if you'd like to keep it running while in foreground mode, be
+sure to run it behind something like ~tmux~ or ~screen~!
+
+** Running Eris as a NixOS service
+
+Eris comes with a NixOS-compatible service module, allowing you to quickly and
+easily serve your Nix store on any machine you're running. We saw how to do this
+earlier, but to recap, after importing, just add the following lines to your
+configuration:
+
+#+BEGIN_SRC nix
+{ config, pkgs, lib, ... }:
+
+{
+  # ...
+  services.eris-git.enable = true;
+}
+#+END_SRC
+
+Like above, this defaults to only serving the HTTP cache on ~localhost~ for
+security reasons, so you'll need to tweak the configuration to expose it on your
+LAN/WAN address.
+
+Check ~module.nix~ for information on the configuration options.
+
+** Running Eris as a service on any Linux distribution
+
+Eris can also be deployed on non-NixOS machines, which is often convenient for
+users and many deployment situations where NixOS isn't available.
+
+The easiest way to do this is to first log in as the ~root~ user on your Linux
+machine with Nix installed. For Nix-on-Linux, the root user controls the
+default set of system profiles and channels, so we'll want to install it
+there.
+
+#+BEGIN_SRC bash
+$ whoami
+root
+$ nix run nixpkgs.git -c git clone https://github.com/thoughtpolice/eris.git
+$ cd eris/
+$ nix-env -i $(nix-build --no-link -Q release.nix -A eris)
+#+END_SRC
+
+~eris~ is now installed for the ~root~ user. This installs the ~eris~ outputs
+into the default profile, which includes an ~eris.service~ file for systemd.
+By installing it into the root user, we can give it a stable path.
+
+Now, you can link this file into the default systemd search path, enable it,
+and start it.
+
+#+BEGIN_SRC bash
+$ systemctl link /nix/var/nix/profiles/system/sw/lib/systemd/system/eris.service
+$ systemctl enable eris
+$ systemctl start eris
+#+END_SRC
+
+Whenever you want to upgrade ~eris~, just install a new version of the package
+into the ~root~ users account (e.g. by running ~git pull~ and re-performing the
+installation.) ~systemd~ will still follow the same stable symbolic link name to
+the updated filesystem paths.
+
+Likewise, there is also a stable path to the ~eris~ binary installed in the
+default profile, located at:
+
+#+BEGIN_SRC bash
+/nix/var/nix/profiles/system/sw/bin/eris
+#+END_SRC
+
+Note that, because this ~eris.service~ file is inside ~/nix/store~, it is
+read-only. You are advised to carefully examine the service file and see if it
+meets your needs. If it doesn't, which is possible, simply copying it to
+~/etc/system/systemd/~ on your system and following the same commands above will
+give you a version you can edit.
+
+* HTTP API
+
+There are only a couple HTTP endpoints that Nix actually relies on in order to
+download files from an HTTP server. But Eris exposes a few more, too.
+
+** Basic Nix HTTP API
+
+There are three primary endpoints a Nix-compliant HTTP cache must implement:
+
+ 1. ~/nix-cache-info~ -- information about the cache server, including where
+    the Nix store is located.
+
+ 2. ~/:hash.narinfo~ -- the narinfo endpoint. A ~GET~ request against this
+    server endpoint will give back information about the resulting object named
+    ~:hash~ in the store, including its path, if it exists. If the object cannot
+    be found in the store, a 404 error code is returned.
+
+ 3. ~/nar/:hash.nar~ -- the download endpoint. A ~GET~ request against
+    this endpoint will download the ~.nar~ file for the given store object,
+    identified by ~:hash~.
+
+** Eris HTTP API (v1)
+
+The prior endpoints give you enough to query Nix packages from the store, but
+Eris also exposes a few extra endpoints, which are probably more useful for
+end-users, or scripting tools.
+
+ - ~/v1/public-key~ -- the Ed25519 public key, which all served objects will be
+   signed by, This would be useful in scripting environments to identify what
+   key the server will sign with. If a server is not configured to sign
+   downloaded objects, a 404 error code is returned.
+
+ - ~/v1/version~ -- the version of ~Eris~, in traditional Nix format, including
+   pre-release/git information if applicable. This endpoint is always available
+   and will never return a non-200 error code, outside of "catastrophic"
+   situations (network/disk/ghosts attacking you).
+
+* Demo: build a private cache with [[https://www.cloudflare.com][CloudFlare]] and [[https://www.packet.net][Packet.net]]
+
+A demonstration of a full-fledged deployment on top of [[https://www.packet.net][Packet.net]] using
+[[https://www.cloudflare.com][CloudFlare]] as a frontend firewall, cache, and DNS service is provided. Thanks to
+the [[https://www.cloudflare.com/bandwidth-alliance/][Bandwidth Alliance]], egress between Packet and CloudFlare is free, so the
+only costs you pay for the cache server are for the physical hardware.
+
+See [[./demo/readme.org][the ~./demo/~ directory]] for more information.
+
+* FAQ
+
+** Why write this?
+
+A few reasons:
+
+1. I wanted something more configurable than [[https://github.com/edolstra/nix-serve][nix-serve]], which is a bit
+   barebones and doesn't include necessary features like authentication.
+2. I wanted something /less heavyweight/ and obscure than [[https://nixos.org/hydra/][Hydra]], which I've
+   had many painful experiences with.
+3. It was a good reason to learn to use [[https://mojolicious.org][Mojolicious]], which is awesome.
+
+** What's with the name?
+
+Eris is the daughter of [[https://en.wikipedia.org/wiki/Eris_(mythology)][Nyx]] in Greek mythology.
+
+** Does Eris handle cache /uploads/?
+
+No. It's assumed you will use some mechanism such as ~nix copy --to ssh://...~
+in order to securely copy store objects to the remote server that runs Eris.
+They will then become available in the cache.
+
+** What about alternative systems like Cachix?
+
+[[https://cachix.org][Cachix]] is a new service for the NixOS community that offers simple, easy-to-use
+hosting for Nix binary caches. You might be wondering if you should use Cachix
+or Eris for your project.
+
+Here's my simple guideline as the author of Eris: *you probably want to use
+Cachix if at all possible*. If you're doing open source work it's also freely
+available, which is especially attractive, but paid, closed-source caches should
+be available soon.
+
+The reasons for this are a bit obvious but it's essentially worth repeating
+here: you probably don't want to run and maintain your own binary cache server.
+NixOS is wonderful but even then, it is a constant maintenance overhead of
+tuning, deployment, upgrades, and security.
+
+On top of that, Eris doesn't really care about or involve itself in the /other/
+half required of a full caching system: uploads, as previously mentioned. Cachix
+does 'first-class' authenticated uploads, i.e. it is a feature. Using SSH is
+fine, and keeps Eris simple, but involves secondary authorization/policy
+management at your own expense. (It's possible this might change one day, but
+it's unlikely any time in the near-future.)
+
+** Austin, you wrote this in /Perl/?
+
+A lot of people know me (Austin Seipp, the primary author) as a Haskell
+programmer. But even outside of that, Perl doesn't ever seem vogue these days
+for new projects (a truly damning image, coming from an industry that's mostly
+fashion-driven), which might leave some to wonder. So this is a quick way of
+saying: I know you're thinking "Why would you choose Perl", and the answer may
+surprise you.
+
+The short of it is: because I like Perl, and it was a chance to learn how to use
+Mojolicious (which I can now say I like quite a lot). That is basically all it
+comes down to. From this point of view I consider Eris a complete success: it
+has been relatively painfree to develop (thanks to Mojo) and I believe its
+future evolution will work out well, and remain clean, and easy to understand,
+over time.
+
+* Hacking
+
+If you want to work on the source code, here are a few tips and tricks.
+
+** Running Eris in-place
+
+The easiest way to get started with Eris is to just run it right out of this
+repository by executing the ~eris.pl~ script:
+
+#+BEGIN_SRC bash
+$ git clone https://github.com/thoughtpolice/eris.git
+$ cd eris
+$ MOJO_MODE=development ./eris.pl -f
+#+END_SRC
+
+This uses ~nix-shell~'s support for shebang lines in order to immediately run
+the underlying Perl script with no fuss. You can just hack on ~eris.pl~ in place
+and restart as you like.
+
+~MOJO_MODE=development~ sets up development mode for the HTTP Route handlers,
+which makes debugging errors and faults much easier.
+
+If you want to test the whole build process and run the resulting executable
+from the Nix derivation, you can do that with ~nix-build~:
+
+#+BEGIN_SRC bash
+export MOJO_MODE=development
+$(nix-build -Q --no-out-link release.nix -A eris)/bin/eris -f
+#+END_SRC
+
+** Running the tests
+
+Running the tests can be done using ~nix build~ quite easily:
+
+#+BEGIN_SRC bash
+$ nix build -f release.nix test
+#+END_SRC
+
+This actually runs the complete set of tests that exist under the ~./t/~
+directory. Each file contains its own NixOS-based test which is collected
+into a full attrset, based on the filename (~test.nix~ is very short, so feel
+free to read it yourself).
+
+** Protip: Running Eris behind Ngrok
+
+[[https://ngrok.io][ngrok]] is an online service that exposes public URLs for local webservers and is
+useful for testing integration. It comes with a free tier. However, it can also
+be used to quickly expose Eris to remote machines. The free tier only allows 40
+connections per minute, however, so it's only useful for light testing.
+
+The ~ngrok~ binary is available in Nixpkgs; you can install and authenticate
+with the http://ngrok.io service as follows, then launch an HTTP tunnel:
+
+#+BEGIN_SRC bash
+$ nix-env -iA nixpkgs.ngrok
+$ ngrok authtoken ...
+$ ngrok http 8080
+#+END_SRC
+
+Now, you're free to use the randomly generated ~ngrok.io~ domain as a temporary
+binary cache.
+
+Note that if you do this, you probably want to enable Hypnotoad's ~proxy~
+setting so that the server will correctly recognize ~X-Forwarded-For~ headers
+and user IPs properly. Add something like this to your ~eris.conf~:
+
+#+BEGIN_SRC perl
+{
+  proxy => 1,
+}
+#+END_SRC
+
+* TODOs
+
+These are basically in the order I wish to tackle them.
+
+** Dynamic routes
+
+It would be interesting to explore 'dynamic routes' for caches, e.g. different
+caches located at different HTTP endpoints with different authentication
+mechanisms, or backends.
+
+** Let's Encrypt integration
+
+For those of us out there who trust nobody, it would be nice if the Hypnotoad
+server could auto-start itself with a set of TLS certificates.
+
+* Authors
+
+See [[https://raw.githubusercontent.com/thoughtpolice/eris/master/AUTHORS.txt][AUTHORS.txt]] for the list of contributors to the project.
+
+* License
+
+*GPLv3 or later*. See [[https://raw.githubusercontent.com/thoughtpolice/eris/master/COPYING][COPYING]] for precise terms of copyright and redistribution.

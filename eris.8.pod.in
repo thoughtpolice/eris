@@ -1,0 +1,51 @@
+=encoding utf8
+
+=head1 NAME
+
+eris -- simple, easy-to-use Nix binary cache
+
+=head1 SYNOPSIS
+
+B<eris> [I<options>]... <[I<device options>] devices>...
+
+=head1 DESCRIPTION
+
+B<eris> is a simple, easy to use nix binary cache, that exports your Nix store
+over HTTP.
+
+=head1 CONFIGURATION
+
+Lorem ipsum...
+
+=head1 COMMAND LINE OPTIONS
+
+Eris uses the Mojolicious L<hypnotoad(8)> server for deployment, and by default
+exports several options to control Hypnotoad startup.
+
+=over
+
+=item B<-f>
+
+Start in the foreground, as opposed to forking a daemon process.
+
+=back
+
+=head1 SEE ALSO
+
+L<hypnotoad(8)>
+
+=head1 AUTHORS
+
+Eris was originally authored, and is maintained by, L<Austin
+Seipp|https://inner-haven.net/>.
+
+=head1 COPYRIGHT
+
+Copyright (C) 2018 Austin Seipp. License GPLv3: L<GNU GPL version
+3|https://gnu.org/licenses/gpl-3.0.en.html>. This is free software: you are free
+to change and redistribute it. There is NO WARRANTY, to the extent permitted by
+law.
+
+=head1 COLOPHON
+
+This page is part of release @VERSION@ of the eris project.

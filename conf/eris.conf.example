@@ -1,0 +1,100 @@
+# eris.conf.example: a full, authoritative example of the Eris configuration
+# file. If some relevant configuration value is available but not described
+# here, that should be considered a bug.
+#
+# The Eris configuration file is actually a Perl program that is run inside a
+# sandbox, giving it a more expressive configuration format than you might be
+# used to.
+
+# To start off with, every configuration file is a top-level value called a Perl
+# "hash". You can think of this like an object in JSON, a dictionary in Python
+# or any kind of map from keys to values.
+#
+# Perl hash values take the form '{ key1 => value1, key2 => value2, ... }',
+# where the values are any Perl values (including other hash values), and keys
+# are bare keywords (i.e. they are not quoted in any way).
+{
+
+  # User authentication: a list of names in the format 'username:password',
+  # which specify the list of users who are allowed to log in. Any clients to
+  # the HTTP server must provide one of these username/password combinations
+  # using HTTP Basic Authentication headers. Note that the password is provided
+  # in cleartext, not in any hashed format.
+  #
+  # If no users are provided, then HTTP basic authentication is not required,
+  # and any HTTP clients may download objects from the cache.
+  #
+  # In the following example, we enable two users.
+  #
+  # The default value for this variable is '[]', i.e. no authentication is required
+  # to query or use the binary cache.
+  users => [
+    'austin:rules',
+    'david:rocks',
+  ],
+
+  # Signing configuration: a specified URL that identifies the authority who
+  # signs packages, as well as the paths to the public and private keyfiles.
+  # Note these options for the keys are *always* filepaths: you cannot specify
+  # them inline in the configuration file.
+  #
+  # The intention of the '-1' in the URL parameter is to signify key-rollover;
+  # e.g. cache.example.com-1's key may be rotated in a year, resulting in a new
+  # key identified by cache.example.com-2.
+  signing => {
+    host    => 'cache.example.com-1',
+    public  => '/etc/eris/cache.pk',
+    private => '/etc/eris/cache.sk',
+  },
+
+  # Server listening configuration: a list of multiple addresses to bind to, as
+  # well as their configuration.
+  #
+  # In the following example, we listen on three addresses, one using HTTP,
+  # another using HTTPS, and a third over a unix socket located at
+  # /run/eris/eris.sock -- the default HTTPS handler uses a set of keys that are
+  # specified in the URL string.
+  #
+  # These examples *probably* cover just about everything you need, but the most
+  # authoritative reference for possible options is the documentation for the
+  # Mojo::Server::Daemon module:
+  #
+  # https://mojolicious.org/perldoc/Mojo/Server/Daemon#listen
+  #
+  # The default connection string will cause Eris to listen on port 8080, on
+  # loopback only, e.g. the default connection string can be specified with
+  # "http://127.0.0.1:8080"
+
+  listen => [
+    'http://[::]:8080',
+    'https://[::]:8443?cert=/etc/eris/eris.crt&key=/etc/eris/eris.key',
+    'http+unix://%2Frun%2Feris%2Feris.sock'
+  ],
+
+  # Proxy mode: if enabled, inform the HTTP server that we are, presumably,
+  # behind another server that will set headers like X-Forwarded-For, etc. In
+  # the event you are using a caching system like Fastly, CloudFlare, etc, or a
+  # frontend HTTP proxy such as Nginx, you should enable this.
+  #
+  # The default value is '0', meaning no proxy is in front of us.
+  proxy => 1,
+
+  # Status page: if enabled, enable the Mojolicious status page, available at /mojo-status,
+  # which will give some basic overview of the current server status. This page is subject
+  # to the HTTP basic authentication critera specified by the 'user' configuration value.
+  #
+  # The default value is '0', meaning the server status is not available.
+  status => 1,
+
+  # The number of worker sub-processes to create, each of which handles requests.
+  # You will probably not need to change this configuration value.
+  #
+  # The default value is 4.
+  workers => 4,
+
+  # The maximum number of accepted connections each worker process is allowed to
+  # handle concurrently, before halting new incoming connections.
+  #
+  # The default value is 1000.
+  clients => 1000,
+}
