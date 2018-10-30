@@ -21,7 +21,7 @@ stdenv.mkDerivation rec {
     [ perl nix nix.perl-bindings glibcLocales
     ] ++ (with perlPackages;
     [ Mojolicious MojoliciousPluginStatus IOSocketSSL
-      DBI DBDSQLite CryptEd25519
+      DBI DBDSQLite
     ]);
 
   outputs = [ "out" "man" ];

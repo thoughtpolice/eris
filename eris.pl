@@ -1,5 +1,5 @@
 #! /usr/bin/env nix-shell
-#! nix-shell -i hypnotoad -p perl nix nix.perl-bindings glibcLocales perlPackages.Mojolicious perlPackages.MojoliciousPluginStatus perlPackages.IOSocketSSL perlPackages.DBI perlPackages.DBDSQLite perlPackages.CryptEd25519
+#! nix-shell -i hypnotoad -p perl nix nix.perl-bindings glibcLocales perlPackages.Mojolicious perlPackages.MojoliciousPluginStatus perlPackages.IOSocketSSL perlPackages.DBI perlPackages.DBDSQLite
 
 # Eris: simple, flexible nix binary cache server
 # Copyright (C) 2018 Austin Seipp
@@ -30,8 +30,6 @@ use Nix::Config;
 use Nix::Manifest;
 use Nix::Store;
 use Nix::Utils qw(readFile);
-
-use Crypt::Ed25519;
 
 use Cwd qw(getcwd);
 use MIME::Base64;
@@ -205,17 +203,7 @@ if (ref(app->config->{signing}) eq 'HASH') {
   app->log->info("signing: user-specified, hostname = $sign_host");
 }
 
-## Case 2: automatic keys
-if (substr(app->config->{signing}, 0, 5) eq 'auto:') {
-  $sign_host = substr(app->config->{signing}, 5);
-  app->log->info("signing: automatic, hostname = $sign_host");
-  ($sign_pk, $sign_sk) = Crypt::Ed25519::generate_keypair;
-
-  $sign_pk = $sign_host.":".encode_base64($sign_pk, '');
-  $sign_sk = $sign_host.":".encode_base64($sign_sk, '');
-}
-
-## Case 3: no keys
+## Case 2: no keys
 app->log->info("signing: no signatures enabled")
   if (!defined($sign_sk));
 
@@ -268,9 +256,8 @@ group {
   # Version handler; probably useful one day!
   get '/version' => { text => "$Eris::VERSION\n" };
 
-  # Public key handler; Nix won't use this, but it's useful for clients if
-  # they quickly want to fetch 'auto' style keys, or automatically fetch/import
-  # keys
+  # Public key handler; Nix won't use this, but it's useful for clients if they
+  # quickly want to automatically fetch/import keys
   get '/public-key' => sub ($c) {
     return $c->render(format => 'txt', text => "No public key configured\n", status => 404)
         unless $sign_pk;
