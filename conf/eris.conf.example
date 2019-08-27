@@ -97,4 +97,11 @@
   #
   # The default value is 1000.
   clients => 1000,
+
+  # Priority of this binary cache, relative to all others. Smaller numbers
+  # (from 1 to 100) have higher priority. (cache.nixos.org has a priority of
+  # 40.)
+  #
+  # The default value is 30.
+  priority => 30,
 }

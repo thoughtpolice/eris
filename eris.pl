@@ -22,6 +22,10 @@ package Eris;
 ## -----------------------------------------------------------------------------
 
 use File::Basename qw(basename);
+use Scalar::Util qw(looks_like_number);
+use Cwd qw(getcwd);
+use MIME::Base64;
+use List::Util;
 
 use Mojolicious::Lite -signatures;
 use Mojo::IOLoop;
@@ -30,10 +34,6 @@ use Nix::Config;
 use Nix::Manifest;
 use Nix::Store;
 use Nix::Utils qw(readFile);
-
-use Cwd qw(getcwd);
-use MIME::Base64;
-use List::Util;
 
 ## -----------------------------------------------------------------------------
 ## -- Basics
@@ -68,6 +68,9 @@ plugin 'Config' => {
 
     # No status page by default
     status => 0,
+
+    # Default cache priority: higher than cache.nixos.org
+    priority => 30,
   },
 };
 
@@ -269,12 +272,15 @@ group {
 ## -----------------------------------------------------------------------------
 ## -- Eris API routes: these are Nix-required routes for an HTTP cache
 
+die "Priority setting must be a number!"
+  unless looks_like_number(app->config->{priority});
+
 # Cache info handler
 get '/nix-cache-info' => {
   text => join "\n", (
     "StoreDir: $Nix::Config::storeDir",
     "WantMassQuery: 1",
-    "Priority: 30",
+    "Priority: " . app->config->{priority},
     "",
   ),
 };
