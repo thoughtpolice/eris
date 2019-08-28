@@ -208,6 +208,14 @@ if (ref(app->config->{signing}) eq 'HASH') {
   # readFile doesn't do this itself
   chomp $sign_pk; chomp $sign_sk;
 
+  # Attach the user-configured signing hostname to this key, regardless of what
+  # was in the file in the first place. `nix-store --generate-binary-cache-key`
+  # will write a user-chosen name at creation time, but the user here would
+  # (rightfully) expect the served hostname to match what they put in the
+  # config file.
+  $sign_pk = $sign_host . ":" . +(split /:/, $sign_pk)[-1];
+  $sign_sk = $sign_host . ":" . +(split /:/, $sign_sk)[-1];
+
   app->log->info("signing: user-specified, hostname = $sign_host");
 }
 
