@@ -2,7 +2,7 @@
 #! nix-shell -i hypnotoad -p perl nix nix.perl-bindings glibcLocales perlPackages.Mojolicious perlPackages.MojoliciousPluginStatus perlPackages.IOSocketSSL perlPackages.DBI perlPackages.DBDSQLite
 
 # Eris: simple, flexible nix binary cache server
-# Copyright (C) 2018 Austin Seipp
+# Copyright (C) 2018-2019 Austin Seipp
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
