@@ -11,5 +11,16 @@ let
   jobs = rec {
     eris = pkg;
     test = import ./test.nix { inherit nixpkgs; };
+
+    docker = nixpkgs.dockerTools.buildLayeredImage {
+      name = "eris";
+      tag = "latest";
+
+      contents = [ eris ];
+      config = {
+        Entrypoint = [ "/bin/eris" ];
+        Cmd        = [ "--help" ];
+      };
+    };
   };
 in jobs
