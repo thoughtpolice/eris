@@ -70,6 +70,9 @@ plugin 'Config' => {
     # No status page by default
     status => 0,
 
+    # Index page enabled by default
+    index_page => 1,
+
     # Default cache priority: higher than cache.nixos.org
     priority => 30,
   },
@@ -172,10 +175,11 @@ my $conf_info = (-e "$eris_conf_file")
     : "no config file, using default settings";
 app->log->info("config: " . $conf_info);
 
-# Proxy, status page info
+# Proxy, status page, index page info
 app->log->info(
   "status page: " . (app->config->{status} == 1 ? "enabled" : "disabled") . ", " .
-  "proxy mode: "  . (app->config->{proxy} == 1 ? "enabled" : "disabled")
+  "index page: " . (app->config->{index_page} == 1 ? "enabled" : "disabled") . ", " .
+  "proxy headers: "  . (app->config->{proxy} == 1 ? "enabled" : "disabled")
 );
 
 # User info
@@ -433,6 +437,18 @@ group {
 };
 
 ## -----------------------------------------------------------------------------
+## -- Index page handler
+
+get '/version.js' => sub ($c) {
+  $c->render(template => 'version', format => 'js');
+} if app->config->{index_page} == 1;
+
+get '/' => sub ($c) {
+  $c->stash(sign_pk => $sign_pk);
+  $c->render(template => 'index');
+} if app->config->{index_page} == 1;
+
+## -----------------------------------------------------------------------------
 ## -- El fin
 
 # Extra: Mojolicious Server Status UX, available at /mojo-status
@@ -447,3 +463,97 @@ app->start;
 # indent-tabs-mode: nil
 # buffer-file-coding-system: utf-8-unix
 # End:
+
+__DATA__
+@@ index.html.ep
+% my $url = url_for;
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+  <title>Nix binary cache (Eris <%= $Eris::VERSION %>)</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+    integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+  <style>
+    body {
+      padding-top: 60px;
+      padding-bottom: 60px;
+    }
+  </style>
+  <script src="version.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <div class="row justify-content-md-center">
+      <div class="col-md-auto">
+        <p class="lead">
+          This service, <code><%= $url->to_abs %></code>, provides a "binary
+          cache" for the <a href="https://nixos.org/nix/">Nix package
+          manager</a>. It is used to automatically speed up builds.
+        </p>
+      </div>
+    </div>
+    <hr>
+    <div class="row">
+      <div class="col text-center">
+        <h5>Usage</h5>
+
+        <p>Using <code>/etc/nix/nix.conf</code>:</p>
+        % if (defined($sign_pk)) {
+          <pre><code>substituters = <%= $url->to_abs %>
+trusted-public-keys = <%= $sign_pk %></code></pre>
+        % } else {
+          <pre><code>substituters = <%= $url->to_abs %></code></pre>
+        % }
+
+        <p>Using <code>/etc/nixos/configuration.nix</code>:</p>
+        % if (defined($sign_pk)) {
+          <pre><code>nix.binaryCaches = [ "<%= $url->to_abs %>" ];
+nix.binaryCachePublicKeys = [ "<%= $sign_pk %>" ];</code></pre>
+        % } else {
+          <pre><code>nix.binaryCaches = [ "<%= $url->to_abs %>" ];</code></pre>
+        % }
+
+        <p>Using <code>nix</code>, <code>nix-build</code>, etc:</p>
+        % if (defined($sign_pk)) {
+          <pre><code>nix build \\
+--option substituters '<%= $url->to_abs %>' \\
+--option trusted-public-keys '<%= $sign_pk %>' \\
+...</code></pre>
+        % } else {
+          <pre><code>nix build --substituters '<%= $url->to_abs %>' ...</code></pre>
+        % }
+      </div>
+    </div>
+    <hr>
+    <div class="row">
+      <div class="col text-center">
+        <small class="d-block mb-3 text-muted">Powered by <a
+        href="https://github.com/thoughtpolice/eris">Eris</a>. <a
+        href="javascript:;" onclick="showVersionClick()">&pi;</a> <span
+        id="versioninfo"></span></small>
+        % if (app->config->{status} == 1) {
+          <small class="d-block mb-3 text-muted">View <a href="<%=
+          url_for('mojo-status')->to_abs %>">server status</a>. </small>
+        % }
+      </div>
+    </div>
+  </div>
+</body>
+
+</html>
+
+@@ version.js.ep
+let versionInfo = "<%= $Eris::VERSION %>";
+let versionDisplayed = false;
+
+function showVersionClick() {
+  if (!versionDisplayed) {
+    versionDisplayed = true;
+    document.getElementById('versioninfo')
+      .insertAdjacentHTML('afterbegin', versionInfo)
+  }
+}

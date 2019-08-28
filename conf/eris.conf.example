@@ -98,6 +98,11 @@
   # The default value is 1000.
   clients => 1000,
 
+  # Enable a nice HTML index page for the server.
+  #
+  # The default value is 1, i.e. enabled.
+  index_page => 1,
+
   # Priority of this binary cache, relative to all others. Smaller numbers
   # (from 1 to 100) have higher priority. (cache.nixos.org has a priority of
   # 40.)
