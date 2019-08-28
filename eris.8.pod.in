@@ -2,33 +2,54 @@
 
 =head1 NAME
 
-eris -- simple, easy-to-use Nix binary cache
+eris -- an easy to use binary cache for the Nix package manager
 
 =head1 SYNOPSIS
 
-B<eris> [I<options>]... <[I<device options>] devices>...
+B<eris> <I<-f|-s>>
 
 =head1 DESCRIPTION
 
-B<eris> is a simple, easy to use nix binary cache, that exports your Nix store
-over HTTP.
+B<eris> is a easy to use "binary cache" for the Nix package manager: it exports
+your Nix store over an HTTP link, allowing you to download objects located on
+other machines.
+
+=head1 BASIC USAGE AND CONFIGURATION
+
+When Eris starts up, it reads a configuration file, and begins executing in one
+of two modes, controlled by command line options: daemon mode, the default if
+no arguments are provided, or foreground mode, if the B<--foreground> command
+line option is given.
+
+Daemon mode forks a process and writes its PID to the CWD. This process can
+later be stopped by using the B<--stop> command line option in the same CWD.
+
+In either mode, a configuration file located in the CWD named B<eris.conf> will
+be read and applied. Its options and format are described below.
+
+=head1 COMMAND LINE OPTIONS
+
+Eris uses the L<hypnotoad(8)> server included with Mojolicious for deployment,
+and by default exports two main command line options to control Hypnotoad
+startup.
+
+=over
+
+=item B<-f>, B<--foreground>
+
+Start the server in the foreground, as opposed to forking a daemon process (the
+default mode).
+
+=item B<-s>, B<--stop>
+
+Stop the server (previously started in daemon mode, i.e. with no command line
+parameters) gracefully.
+
+=back
 
 =head1 CONFIGURATION
 
 Lorem ipsum...
-
-=head1 COMMAND LINE OPTIONS
-
-Eris uses the Mojolicious L<hypnotoad(8)> server for deployment, and by default
-exports several options to control Hypnotoad startup.
-
-=over
-
-=item B<-f>
-
-Start in the foreground, as opposed to forking a daemon process.
-
-=back
 
 =head1 SEE ALSO
 
@@ -48,4 +69,4 @@ permitted by law.
 
 =head1 COLOPHON
 
-This page is part of release @VERSION@ of the eris project.
+This page is part of release @VERSION@ of the Eris project.
