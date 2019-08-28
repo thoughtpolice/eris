@@ -41,6 +41,7 @@ use Nix::Utils qw(readFile);
 # Note: replaced by the build script for nix builds
 our $VERSION  = "0xDEADBEEF";
 our $XZEXE    = "xz";
+our $BZ2EXE   = "bzip2";
 
 my $eris_conf_file = $ENV{ERIS_CONFIG};
 $eris_conf_file ||= getcwd . '/eris.conf';
@@ -379,15 +380,25 @@ group {
         unless $storePath;
 
     # Set the Content-Length for tools like curl, etc
-    app->log->debug("streaming nar: $storePath");
     my ($drv, $narhash, $time, $size, $refs) = queryPathInfo($storePath, 1);
     $c->res->headers->content_length($size);
 
     # And content-type, too
     $c->res->headers->content_type('application/x-nix-archive');
 
+    # get the right command. we don't advertise .nar.xz or .nar.bz2 ourselves, but
+    # the upstream narinfos might, and for compatibility we offer them here.
+    my $dump_cmd = "nix-store --dump '$storePath'";
+    if ($c->stash('format') eq 'nar.xz') {
+      $dump_cmd .= "|$XZEXE --fast";
+    } elsif ($c->stash('format') eq 'nar.bz2') {
+      $dump_cmd .= "|$BZ2EXE --fast";
+    }
+
+    app->log->debug("streaming ".$c->stash('format').": $storePath");
+
     # dump and optionally exit on 503, so error codes can be distinguished
-    my $pid = open my $fh, '-|', "nix-store --dump '$storePath'";
+    my $pid = open my $fh, '-|', $dump_cmd;
     return $c->render(format => 'txt', text => 'nix-store --dump failed', status => 503)
         unless defined($pid);
 
@@ -416,7 +427,7 @@ group {
   };
 
   # Primary route handler for /nar/:hash.nar requests
-  get '/:hash' => [ format => [ 'nar' ] ] => sub ($c) {
+  get '/:hash' => [ format => [ 'nar', 'nar.xz', 'nar.bz2' ] ] => sub ($c) {
     return $c->stream_nar();
   };
 };

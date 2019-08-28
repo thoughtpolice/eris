@@ -51,7 +51,8 @@ stdenv.mkDerivation rec {
     # Set up accurate version information, xz utils
     substituteInPlace $out/libexec/eris.pl \
       --replace \"0xDEADBEEF\" \"${version}\" \
-      --replace \"xz\" \"${xz.bin}/bin/xz\"
+      --replace \"xz\"    \"${xz.bin}/bin/xz\" \
+      --replace \"bzip2\" \"${bzip2.bin}/bin/bzip2\"
 
     # Create the binary and set permissions
     touch $out/bin/eris
