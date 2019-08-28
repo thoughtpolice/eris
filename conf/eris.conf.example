@@ -64,12 +64,35 @@
   # The default connection string will cause Eris to listen on port 8080, on
   # loopback only, e.g. the default connection string can be specified with
   # "http://127.0.0.1:8080"
-
   listen => [
     'http://[::]:8080',
     'https://[::]:8443?cert=/etc/eris/eris.crt&key=/etc/eris/eris.key',
     'http+unix://%2Frun%2Feris%2Feris.sock'
   ],
+
+  # An upstream HTTP cache to use for proxying, or on a cache miss. If this is
+  # configured, and Eris is asked to fetch an object from the store, and it
+  # isn't present, then this upstream will be contacted and asked instead. This
+  # effectively allows Eris to serve your private artifacts in the store, and
+  # serve upstream objects when needed.
+  #
+  # If the given URL has the query string parameter 'always=1' attached to it,
+  # then this HTTP cache will **ALWAYS** be used for all requests. This
+  # effectively makes Eris a reverse proxy for some other cache server. The
+  # default setting is 'always=0'.
+  #
+  # Note that this mode effectively *is* an HTTP proxy; while Nix will respect
+  # 302s, we do not issue them, and instead actually proxy the request directly
+  # through to the client. This means that Eris will not sign requests for NARs
+  # served by the upstream cache. You must have all the necessary trusted keys
+  # you need configured.
+  #
+  # This setting is intended to be used for deployments where you only want a
+  # single binary cache endpoint to serve all user requests (for example, to do
+  # egress traffic control, or relax the need for private machines to have
+  # external IP addresses for contacting cache.nixos.org -- a single server
+  # running Eris is the only machine that needs egress IP availability.)
+  upstream => 'https://cache.nixos.org?always=0',
 
   # Proxy mode: if enabled, inform the HTTP server that we are, presumably,
   # behind another server that will set headers like X-Forwarded-For, etc. In

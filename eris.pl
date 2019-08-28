@@ -75,6 +75,9 @@ plugin 'Config' => {
 
     # Default cache priority: higher than cache.nixos.org
     priority => 30,
+
+    # No default upstream.
+    upstream => '',
   },
 };
 
@@ -193,6 +196,25 @@ app->log->info(
   app->log->info("authentication: " . $authinfo);
 }
 
+# Upstream information
+my $upstream = Mojo::URL->new(app->config->{upstream});
+my $always_use_upstream = 0;
+
+if (defined($upstream->host)) {
+  # NB: unset the 'always' param in both cases, in case we set always=0, which
+  # would only trigger the true branch due to perl semantics!
+  if ($upstream->query->param('always')) {
+    $always_use_upstream = 1;
+    $upstream->query(always => undef);
+    app->log->info("upstream: yes, always using " . $upstream . " (proxy mode)");
+  } else {
+    $upstream->query(always => undef);
+    app->log->info("upstream: yes, using " . $upstream . " on miss");
+  }
+} else {
+  app->log->info("upstream: no, only serving given cache");
+}
+
 # --
 # -- Signing logic
 # --
@@ -298,11 +320,52 @@ get '/nix-cache-info' => {
   ),
 };
 
-# Helper routine that simply pulls out the hash parameter from
-# the query and returns the path of that object in the store;
-# accessible via $c->nixhash;
+my $our_user = new Mojo::UserAgent->new;
+$our_user->transactor->name("Eris/$Eris::VERSION");
+$our_user->max_response_size(0); # infinite download size for upstreams
+
+# Helper routine that fetches objects from an upstream server, if it's
+# configured. This automatically figures out the right path to serve.
+helper fetch_upstream => sub ($c, $ctype, $info=undef) {
+  my $path = $c->req->url;
+  my $prefix = defined($info) ? "$info: " : '';
+  app->log->debug($prefix.'fetching upstream object '.$path);
+
+  my $upstream_url = Mojo::URL->new($path)->to_abs($upstream);
+  my $tx = $our_user->build_tx(GET => $upstream_url => {
+    Accept => $ctype,
+  });
+
+  return $c->proxy->start_p($tx);
+};
+
+# Helper routine that handles misses for local objects, if an upstream is
+# defined for the current configuration. If not, a 404 is returned.
+helper handle_miss => sub ($c, $ctype) {
+  return $c->render(format => 'txt', text => "404", status => 404)
+    if (!defined($upstream->host));
+
+  return $c->fetch_upstream($ctype, 'local miss');
+};
+
+# Helper routine that simply pulls out the hash parameter from the query and
+# returns the path of that object in the store; accessible via $c->nixhash;
 helper nixhash => sub ($c) {
   my $hash = $c->param('hash');
+
+  if (length $hash != 32) {
+    # If the hash we get asked about isn't 32 bytes (160 bits) then we need to
+    # go ahead and treat it as invalid, possibly to be forwarded to an upstream
+    # server. Why? Because the local-store.cc implementation inside Nix will
+    # treat this hash as invalid if it isn't this exact length. The reason this
+    # would be the case is because an upstream .narinfo, served e.g. by
+    # cache.nixos.org, may use a hash value that is bigger than 32 bytes. The
+    # actual length of the hash doesn't matter in general for substituter logic
+    # to work, because it just follows the URLs in the narinfo -- it's just that
+    # queryPathFromHashPart actually requires this for local queries in its API.
+    return ($hash, undef);
+  }
+
   my $storePath = queryPathFromHashPart($hash);
   return ($hash, $storePath);
 };
@@ -314,10 +377,11 @@ helper nixhash => sub ($c) {
 get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
   $c->timing->begin('narinfo');
 
-  # 404 when no hash is found
+  # Always fetch upstream results if asked. Otherwise, query the store, and
+  # optionally pass thru to an upstream if that fails.
+  return $c->fetch_upstream('text/x-nix-narinfo') if $always_use_upstream;
   my ($hash, $storePath) = $c->nixhash;
-  return $c->render(format => 'txt', text => "No such path.\n", status => 404)
-      unless $storePath;
+  return $c->handle_miss('text/x-nix-narinfo') unless $storePath;
 
   # query
   $c->timing->begin('nar_query');
@@ -385,11 +449,12 @@ group {
 
   # This is the primary helper function for the NAR endpoint, which can stream
   # for multiple different endpoints, though for now it's fairly single-purpose.
-  helper stream_nar => sub {
-    my $c = shift;
+  helper stream_nar => sub ($c) {
+    # Always fetch upstream results if asked. Otherwise, query the store, and
+    # optionally pass thru to an upstream if that fails.
+    return $c->fetch_upstream('application/x-nix-nar') if $always_use_upstream;
     my ($hash, $storePath) = $c->nixhash;
-    return $c->render(format => 'txt', text => "No such path.\n", status => 404)
-        unless $storePath;
+    return $c->handle_miss('application/x-nix-nar') unless $storePath;
 
     # Set the Content-Length for tools like curl, etc
     my ($drv, $narhash, $time, $size, $refs) = queryPathInfo($storePath, 1);
