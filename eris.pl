@@ -196,25 +196,6 @@ app->log->info(
   app->log->info("authentication: " . $authinfo);
 }
 
-# Upstream information
-my $upstream = Mojo::URL->new(app->config->{upstream});
-my $always_use_upstream = 0;
-
-if (defined($upstream->host)) {
-  # NB: unset the 'always' param in both cases, in case we set always=0, which
-  # would only trigger the true branch due to perl semantics!
-  if ($upstream->query->param('always')) {
-    $always_use_upstream = 1;
-    $upstream->query(always => undef);
-    app->log->info("upstream: yes, always using " . $upstream . " (proxy mode)");
-  } else {
-    $upstream->query(always => undef);
-    app->log->info("upstream: yes, using " . $upstream . " on miss");
-  }
-} else {
-  app->log->info("upstream: no, only serving given cache");
-}
-
 # --
 # -- Signing logic
 # --
@@ -248,6 +229,69 @@ app->log->info("signing: no signatures enabled")
 ## OK, done
 app->log->info("public key: $sign_pk")
   if (defined($sign_pk));
+
+# --
+# -- upstream/proxy information
+# --
+
+# Upstream information
+my $upstream = Mojo::URL->new(app->config->{upstream});
+my $resign_upstream_narinfos = 0;
+my $resigning_unsafe = 0;
+my $resign_pubkey = undef;
+my $resign_keyname = undef;
+my $resign_key64 = undef;
+my $always_use_upstream = 0;
+
+if (defined($upstream->host)) {
+  $always_use_upstream = 1 if $upstream->query->param('always');
+  $resign_upstream_narinfos = 1 if $upstream->query->param('resign');
+
+  # disable resigning in specific cases
+  if (!defined($sign_sk) && $resign_upstream_narinfos) {
+    app->log->warn("resigning configured for '".$upstream->host."', but no signing key set! disabling");
+    $resign_upstream_narinfos = 0;
+  }
+
+  $resign_pubkey = $upstream->query->param('public_key');
+  if ($resign_upstream_narinfos && !$resign_pubkey) {
+    if (!$upstream->query->param('resign_unsafe')) {
+      app->log->warn("resigning configured for '".$upstream->host."', but no public key set!");
+      app->log->warn("this is HIGHLY UNSAFE, so disabling. set 'resign_unsafe=1' to bypass!");
+      $resign_upstream_narinfos = 0;
+    } else {
+      app->log->warn("resigning configured for '".$upstream->host."', but no public key set, and unsafe mode enabled!");
+      app->log->warn("THIS IS HIGHLY UNSAFE! YOU SHOULD CONFIGURE AN UPSTREAM PUBLIC KEY");
+      $resigning_unsafe = 1;
+    }
+  } else {
+    # We use the key name later on to do a lookup
+    ($resign_keyname, $resign_key64) = +(split /:/, $resign_pubkey);
+  }
+
+  # unset the parameters
+  $upstream->query(always => undef);
+  $upstream->query(resign => undef);
+  $upstream->query(resign_unsafe => undef);
+  $upstream->query(public_key => undef);
+
+  # dump debugging info
+  if ($always_use_upstream) {
+    app->log->info("upstream: yes, always using " . $upstream . " (proxy mode)");
+  } else {
+    app->log->info("upstream: yes, using " . $upstream . " on miss");
+  }
+
+  if ($resign_upstream_narinfos) {
+    app->log->info("upstream: re-signing narinfos with key '".$sign_host."'");
+    unless ($resigning_unsafe) {
+      app->log->info("upstream: validating with public key '".$resign_pubkey."'");
+    }
+  }
+
+} else {
+  app->log->info("upstream: no, only serving given cache");
+}
 
 ## -----------------------------------------------------------------------------
 ## -- Warnings, further info
@@ -325,7 +369,9 @@ $our_user->transactor->name("Eris/$Eris::VERSION");
 $our_user->max_response_size(0); # infinite download size for upstreams
 
 # Helper routine that fetches objects from an upstream server, if it's
-# configured. This automatically figures out the right path to serve.
+# configured. This automatically figures out the right path to serve. If
+# resigning for upstream caches is enabled, then we enter an alternative path
+# for .narinfo files that appends our own signature to the response.
 helper fetch_upstream => sub ($c, $ctype, $info=undef) {
   my $path = $c->req->url;
   my $prefix = defined($info) ? "$info: " : '';
@@ -336,7 +382,81 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
     Accept => $ctype,
   });
 
-  return $c->proxy->start_p($tx);
+  # if we're not serving narinfos, or we don't configure re-signing,
+  # then just return the fetched promise
+  unless ($c->stash('format') eq 'narinfo' && $resign_upstream_narinfos) {
+    return $c->proxy->start_p($tx);
+  }
+
+  # otherwise, fetch the whole narinfo and append another signature
+  app->log->debug("fetching narinfo and attempting to resign with key '$sign_host'");
+  return $our_user->start_p($tx)->then(sub ($mtx) {
+    # exit immediately for non-200 resps
+    if ($mtx->result->code != 200) {
+      app->log->debug("non-200 return for narinfo, no resign");
+      return $c->render(
+        format => 'txt',
+        text   => $mtx->result->text,
+        status => $mtx->result->code,
+      );
+    }
+
+    # ok: clean up the body for our purposes
+    my $body = $mtx->result->body;
+    chomp $body; # keeps the results looking neat
+
+    # nab the necessary signature values
+    my ($narpath) = $body =~ /StorePath: (.*)/;
+    my ($narhash) = $body =~ /NarHash: (.*)/;
+    my ($narsize) = $body =~ /NarSize: (.*)/;
+    my ($narrefs) = $body =~ /References: (.*)/;
+
+    # NB: references can be empty, so don't bail if they are. but everything
+    # else is mandatory
+    unless ($narpath && $narhash && $narsize) {
+      app->log->error("ERROR: could not parse narinfo for valid signature!");
+      return $c->render(format => 'txt', text => '404', status => 404);
+    }
+
+    # we need to do two things: first, fingerprintPath expects an array ref
+    # instead of a direct array for the references, so we need to wrap the whole
+    # thing with [ ... ] and put it in a scalar. second, narinfos must serve
+    # 'References:' entries WITHOUT the store path attached, but fingerprintPath
+    # REQUIRES the store path is prefixed. so: split into an array, add the
+    # store path prefix, and return a ref.
+    #
+    # TODO FIXME: we should REALLY check that the upstream /nix-cache-info file
+    # gives back a valid StoreDir that matches ours on startup, and immediately
+    # die if it doesn't. that said, the signature check below will necessarily
+    # weed it out...
+    $narrefs = [ map { "$Nix::Config::storeDir/$_" } (split /\s/, $narrefs) ];
+
+    # check upstream fingerprint validity
+    my $fp = fingerprintPath($narpath, $narhash, $narsize, $narrefs);
+
+    unless ($resigning_unsafe) {
+      my ($sig64) = $body =~ /Sig: $resign_keyname:(.*)/;
+
+      if (!$sig64) {
+        app->log->error("ERROR: could not find signature for $resign_keyname on upstream narinfo!");
+        return $c->render(format => 'txt', text => '404', status => 404);
+      }
+
+      app->log->debug("attempting to validate signature '$resign_keyname:$sig64' for '$path'...");
+      if (!checkSignature(decode_base64($resign_key64), decode_base64($sig64), $fp)) {
+        app->log->error("ERROR: invalid signature '$resign_keyname:$sig64' for '$path'!");
+        return $c->render(format => 'txt', text => '404', status => 404);
+      }
+
+      app->log->debug("valid signature for $resign_keyname on upstream path $path");
+    }
+
+    # sign, finish
+    my $signature = signString($sign_sk, $fp);
+    $body .= "\nSig: $signature\n";
+    $c->res->headers->content_length(length($body));
+    return $c->render(format => 'narinfo', text => $body);
+  });
 };
 
 # Helper routine that handles misses for local objects, if an upstream is
