@@ -180,9 +180,10 @@ app->log->info("config: " . $conf_info);
 
 # Proxy, status page, index page info
 app->log->info(
-  "status page: " . (app->config->{status} == 1 ? "enabled" : "disabled") . ", " .
-  "index page: " . (app->config->{index_page} == 1 ? "enabled" : "disabled") . ", " .
-  "proxy headers: "  . (app->config->{proxy} == 1 ? "enabled" : "disabled")
+  "priority: " . app->config->{priority} . ", " .
+  "status page: " . (app->config->{status} == 1 ? "yes" : "no") . ", " .
+  "index page: " . (app->config->{index_page} == 1 ? "yes" : "no") . ", " .
+  "proxy headers: "  . (app->config->{proxy} == 1 ? "yes" : "no")
 );
 
 # User info
