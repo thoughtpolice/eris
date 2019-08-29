@@ -390,7 +390,17 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
   # if we're not serving narinfos, or we don't configure re-signing,
   # then just return the fetched promise
   unless ($c->stash('format') eq 'narinfo' && $resign_upstream_narinfos) {
-    return $c->proxy->start_p($tx);
+    $tx->res->content->once(body => sub ($stx) {
+      $c->res->headers->content_type('application/x-nix-archive');
+      $c->res->headers->content_length($tx->res->headers->content_length);
+      $c->write;
+
+      $tx->res->content->unsubscribe('read')->on(read => sub ($s, $bytes) {
+        $c->write($bytes);
+      });
+    });
+
+    return $our_user->start($tx);
   }
 
   # otherwise, fetch the whole narinfo and append another signature
