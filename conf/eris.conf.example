@@ -34,16 +34,18 @@
   ],
 
   # Signing configuration: a specified URL that identifies the authority who
-  # signs packages, as well as the paths to the public and private keyfiles.
-  # Note these options for the keys are *always* filepaths: you cannot specify
-  # them inline in the configuration file.
+  # signs packages, as well as the paths to the private keyfile.  Note these
+  # options for the keys are *always* filepaths: you cannot specify them inline
+  # in the configuration file.
+  #
+  # The public key does not need to be specified, and is calculated
+  # automatically from the secret key.
   #
   # The intention of the '-1' in the URL parameter is to signify key-rollover;
   # e.g. cache.example.com-1's key may be rotated in a year, resulting in a new
   # key identified by cache.example.com-2.
   signing => {
     host    => 'cache.example.com-1',
-    public  => '/etc/eris/cache.pk',
     private => '/etc/eris/cache.sk',
   },
 

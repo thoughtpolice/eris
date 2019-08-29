@@ -8,7 +8,6 @@ let
       listen => ['http://[::]:80'],
       signing => {
         host    => 'eris-1',
-        public  => '${./cache.pk}',
         private => '${./cache.sk}',
       },
     }

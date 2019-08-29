@@ -324,7 +324,6 @@ with:
 {
   signing => {
     host    => 'cache.example.com-1',
-    public  => '/etc/nix/cache.pk',
     private => '/etc/nix/cache.sk',
   },
 }

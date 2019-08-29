@@ -60,7 +60,6 @@
 
           signing => {
             host    => 'cache.z0ne.pw-1',
-            public  => '/etc/eris/sign.pk',
             private => '/etc/eris/sign.sk',
           },
         }

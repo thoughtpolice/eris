@@ -205,30 +205,35 @@ my ($sign_host, $sign_pk, $sign_sk) = (undef, undef, undef);
 ## Case 1: user-specified keys
 if (ref(app->config->{signing}) eq 'HASH') {
   $sign_host = app->config->{signing}->{host};
-  $sign_pk = readFile app->config->{signing}->{public};
   $sign_sk = readFile app->config->{signing}->{private};
+  chomp $sign_sk; # readFile doesn't do this itself
 
-  # readFile doesn't do this itself
-  chomp $sign_pk; chomp $sign_sk;
+  my $sign_sk64   = +(split /:/, $sign_sk)[-1];
+  my $sign_skno64 = decode_base64($sign_sk64);
 
-  # Attach the user-configured signing hostname to this key, regardless of what
-  # was in the file in the first place. `nix-store --generate-binary-cache-key`
-  # will write a user-chosen name at creation time, but the user here would
-  # (rightfully) expect the served hostname to match what they put in the
-  # config file.
-  $sign_pk = $sign_host . ":" . +(split /:/, $sign_pk)[-1];
-  $sign_sk = $sign_host . ":" . +(split /:/, $sign_sk)[-1];
+  if (length($sign_skno64) != 64) {
+    app->log->error("ERROR: invalid signing key provided! signing disabled");
+    $sign_host = undef;
+    $sign_sk = undef;
+  } else {
+    # An ed25519 secret key contains the public key as well. It's the botton 32
+    # bytes of the whole 64 byte key. Compute that.
+    my $sign_pk64 = encode_base64(substr($sign_skno64, 32));
+    chomp $sign_pk64; # beware encode_base64() newline!
 
-  app->log->info("signing: user-specified, hostname = $sign_host");
+    # Attach the user-configured signing hostname to this key, regardless of what
+    # was in the file in the first place. `nix-store --generate-binary-cache-key`
+    # will write a user-chosen name at creation time, but the user here would
+    # (rightfully) expect the served hostname to match what they put in the
+    # config file.
+    $sign_sk = $sign_host . ":" . $sign_sk64;
+    $sign_pk = $sign_host . ":" . $sign_pk64;
+
+    app->log->info("signing: enabled, key = $sign_host:$sign_pk64");
+  }
+} else {
+  app->log->info("signing: no signatures enabled")
 }
-
-## Case 2: no keys
-app->log->info("signing: no signatures enabled")
-  if (!defined($sign_sk));
-
-## OK, done
-app->log->info("public key: $sign_pk")
-  if (defined($sign_pk));
 
 # --
 # -- upstream/proxy information
