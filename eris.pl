@@ -638,6 +638,7 @@ group {
 ## -- Index page handler
 
 get '/version.js' => sub ($c) {
+  $c->stash(priority => app->config->{priority});
   $c->render(template => 'version', format => 'js');
 } if app->config->{index_page} == 1;
 
@@ -745,7 +746,7 @@ nix.binaryCachePublicKeys = [ "<%= $sign_pk %>" ];</code></pre>
 </html>
 
 @@ version.js.ep
-let versionInfo = "<%= $Eris::VERSION %>";
+let versionInfo = "<%= $Eris::VERSION %>. Cache priority: <%= $priority %>";
 let versionDisplayed = false;
 
 function showVersionClick() {
