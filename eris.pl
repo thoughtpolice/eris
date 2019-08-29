@@ -212,7 +212,7 @@ if (ref(app->config->{signing}) eq 'HASH') {
   my $sign_skno64 = decode_base64($sign_sk64);
 
   if (length($sign_skno64) != 64) {
-    app->log->error("ERROR: invalid signing key provided! signing disabled");
+    app->log->error("invalid signing key provided! signing disabled");
     $sign_host = undef;
     $sign_sk = undef;
   } else {
@@ -429,7 +429,7 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
     # NB: references can be empty, so don't bail if they are. but everything
     # else is mandatory
     unless ($narpath && $narhash && $narsize) {
-      app->log->error("ERROR: could not parse narinfo for valid signature!");
+      app->log->error("could not parse narinfo for valid signature!");
       return $c->render(format => 'txt', text => '404', status => 404);
     }
 
@@ -453,13 +453,13 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
       my ($sig64) = $body =~ /Sig: $resign_keyname:(.*)/;
 
       if (!$sig64) {
-        app->log->error("ERROR: could not find signature for $resign_keyname on upstream narinfo!");
+        app->log->error("could not find signature for $resign_keyname on upstream narinfo!");
         return $c->render(format => 'txt', text => '404', status => 404);
       }
 
       app->log->debug("attempting to validate signature '$resign_keyname:$sig64' for '$path'...");
       if (!checkSignature(decode_base64($resign_key64), decode_base64($sig64), $fp)) {
-        app->log->error("ERROR: invalid signature '$resign_keyname:$sig64' for '$path'!");
+        app->log->error("invalid signature '$resign_keyname:$sig64' for '$path'!");
         return $c->render(format => 'txt', text => '404', status => 404);
       }
 
