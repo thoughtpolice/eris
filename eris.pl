@@ -249,7 +249,28 @@ my $resign_keyname = undef;
 my $resign_key64 = undef;
 my $always_use_upstream = 0;
 
+# ensure the upstream host has a valid nix-cache-info
+my $upstream_host_valid = 0;
 if (defined($upstream->host)) {
+  app->log->info("upstream host configured, attempting nix-cache-info ping...");
+
+  my $ua = new Mojo::UserAgent->new;
+  $ua->transactor->name("Eris/$Eris::VERSION");
+  my $url = Mojo::URL->new('nix-cache-info')->to_abs($upstream);
+  my $body = $ua->get($url)->result->body;
+
+  my ($upstreamStoreDir) = $body =~ /StoreDir: (.*)/;
+  if ($upstreamStoreDir eq $Nix::Config::storeDir) {
+    app->log->info("OK: upstream has StoreDir=$upstreamStoreDir");
+    $upstream_host_valid = 1;
+  } else {
+    app->log->error("FAIL: upstream has StoreDir=$upstreamStoreDir, incompatible with $Nix::Config::storeDir!");
+    app->log->error("marking upstream as invalid");
+  }
+}
+
+# if the upstream is ok, then figure out the upstream/resigning logic
+if ($upstream_host_valid) {
   $always_use_upstream = 1 if $upstream->query->param('always');
   $resign_upstream_narinfos = 1 if $upstream->query->param('resign');
 
@@ -440,11 +461,6 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
     # 'References:' entries WITHOUT the store path attached, but fingerprintPath
     # REQUIRES the store path is prefixed. so: split into an array, add the
     # store path prefix, and return a ref.
-    #
-    # TODO FIXME: we should REALLY check that the upstream /nix-cache-info file
-    # gives back a valid StoreDir that matches ours on startup, and immediately
-    # die if it doesn't. that said, the signature check below will necessarily
-    # weed it out...
     $narrefs = [ map { "$Nix::Config::storeDir/$_" } (split /\s/, $narrefs) ];
 
     # check upstream fingerprint validity
