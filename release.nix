@@ -1,26 +1,34 @@
-{ eris ? builtins.fetchGit ./.
+{ repo ? builtins.fetchGit ./.
 , officialRelease ? false
 , config ? {}
 }:
 
 let
-  nixpkgs = import ./nix/nixpkgs.nix { inherit config; };
-
-  pkg = import ./. { nixpkgs = nixpkgs.path; inherit eris officialRelease; };
+  pkgs = import ./nix/nixpkgs.nix { inherit config; };
 
   jobs = rec {
-    eris = pkg;
-    test = import ./test.nix { inherit nixpkgs; };
+    eris = import ./. { nixpkgs = pkgs.path; eris = repo; inherit officialRelease; };
+    test = import ./test.nix { nixpkgs = pkgs; };
 
-    docker = nixpkgs.dockerTools.buildLayeredImage {
-      name = "eris";
-      tag = "latest";
+    docker = with pkgs;
+      let
+        # needed for container/host resolution
+        nsswitch-conf = writeTextFile {
+          name = "nsswitch.conf";
+          text = "hosts: dns files";
+          destination = "/etc/nsswitch.conf";
+        };
+      in dockerTools.buildLayeredImage {
+        name = "eris";
+        tag = eris.version;
 
-      contents = [ eris ];
-      config = {
-        Entrypoint = [ "/bin/eris" ];
-        Cmd        = [ "--help" ];
+        contents = [ eris nsswitch-conf iana-etc cacert tzdata busybox ];
+
+        config = {
+          Entrypoint = [ "/bin/eris" ];
+          Cmd = [ "--help" ];
+          Env = [ "ERIS_CONFIG=/etc/eris.conf" ];
+        };
       };
-    };
   };
 in jobs
