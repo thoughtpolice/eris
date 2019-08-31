@@ -1,3 +1,4 @@
-* Version 0.1
+* Version 0.1: Developer Edition
 
-Initial release.
+Initial public release with basic trappings. Features may be unstable. Only
+available from the source repository.
