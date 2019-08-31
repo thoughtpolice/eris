@@ -7,13 +7,17 @@ with builtins;
 with import nixpkgs {};
 
 let
-  basever = readFile ./.version;
+  versionInfo = lib.splitString "\n" (lib.fileContents ./.version);
+  basever = elemAt versionInfo 0;
+  relname = elemAt versionInfo 1;
+
   vsuffix = lib.optionalString (!officialRelease)
     "pre${toString eris.revCount}_${eris.shortRev}";
+  version = "${basever}${vsuffix}";
 in
 stdenv.mkDerivation rec {
-  name = "eris-${version}";
-  version = "${basever}${vsuffix}";
+  pname = "eris";
+  inherit version relname;
 
   src = lib.cleanSource ./.;
 
@@ -50,9 +54,10 @@ stdenv.mkDerivation rec {
 
     # Set up accurate version information, xz utils
     substituteInPlace $out/libexec/eris.pl \
-      --replace \"0xDEADBEEF\" \"${version}\" \
-      --replace \"xz\"    \"${xz.bin}/bin/xz\" \
-      --replace \"bzip2\" \"${bzip2.bin}/bin/bzip2\"
+      --replace '"0xERISVERSION"' '"${version}"' \
+      --replace '"0xERISRELNAME"' '"${relname}"' \
+      --replace '"xz"'        '"${xz.bin}/bin/xz"' \
+      --replace '"bzip2"'     '"${bzip2.bin}/bin/bzip2"'
 
     # Create the binary and set permissions
     touch $out/bin/eris

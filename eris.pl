@@ -39,7 +39,8 @@ use Nix::Utils qw(readFile);
 ## -- Basics
 
 # Note: replaced by the build script for nix builds
-our $VERSION  = "0xDEADBEEF";
+our $VERSION  = "0xERISVERSION";
+our $RELNAME  = "0xERISRELNAME";
 our $XZEXE    = "xz";
 our $BZ2EXE   = "bzip2";
 
@@ -163,7 +164,7 @@ my $libev_info = join "/", @ev_backends;
 
 # Basics: version, mode settings, nix configuration
 app->log->info(
-  "Eris: version $Eris::VERSION, ".
+  "Eris $Eris::VERSION ($Eris::RELNAME), ".
   "mode = $mode (mojo $Mojolicious::VERSION)"
 );
 app->log->info(
