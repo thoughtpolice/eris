@@ -10,6 +10,8 @@ jobs:
     name: Build Job
     needs: checkout
     timeout-minutes: 360
+    container: lnl7/nix:2019-05-04
+
     strategy:
       matrix:
         nixpkgs: [ none, nixos-19.03, nixos-unstable ]
@@ -20,7 +22,6 @@ jobs:
         fetch-depth: 1
 
     - name: Run nix-build
-      container: lnl7/nix:2019-05-04
       env:
         NIXPKGS_URL: https://github.com/NixOS/nixpkgs-channels/archive/${{ matrix.nixpkgs }}.tar.gz
       if: matrix.nixpkgs != 'none'
