@@ -10,11 +10,13 @@ jobs:
     name: Build Job
     needs: checkout
     timeout-minutes: 360
+    runs-on: ubuntu-latest
     container: lnl7/nix:2019-05-04
 
     strategy:
       matrix:
         nixpkgs: [ none, nixos-19.03, nixos-unstable ]
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v1
