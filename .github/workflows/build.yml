@@ -8,7 +8,6 @@ on:
 jobs:
   build:
     name: Build Job
-    needs: checkout
     timeout-minutes: 360
     runs-on: ubuntu-latest
     container: lnl7/nix:2019-05-04
