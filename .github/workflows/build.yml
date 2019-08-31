@@ -23,11 +23,11 @@ jobs:
         fetch-depth: 1
 
     - if: matrix.nixpkgs != 'none'
-      name: Run nix-build (nixpkgs=${{ matrix.nixpkgs }})
+      name: Run nix-build
       env:
         NIXPKGS_URL: https://github.com/NixOS/nixpkgs-channels/archive/${{ matrix.nixpkgs }}.tar.gz
       run: which nix-build && echo nix-build --no-link release.nix --arg nixpkgs "$NIXPKGS_URL"
 
     - if: matrix.nixpkgs == 'none'
-      name: Run nix-build (nixpkgs=<locked nixpkgs.json>)
+      name: Run nix-build
       run: which nix-build && echo nix-build --no-link release.nix
