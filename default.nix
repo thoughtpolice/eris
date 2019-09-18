@@ -1,28 +1,12 @@
-{ nixpkgs ? null
-, eris ? builtins.fetchGit ./.
+{ eris ? builtins.fetchGit ./.
 , officialRelease ? false
+, nixpkgs ? null
 , config ? {}
+, system ? builtins.currentSystem
 }:
 
 with builtins;
-
-# Do the dance to import a valid version of Nixpkgs, depending
-# on what the user asked.
-let
-  pkgConfig = config // {
-    # Add any necessary upstream overrides here.
-    packageOverrides = pkgs: with pkgs; {};
-  };
-
-  # hack: no builtins.isPath :(
-  isPath = x: substring 0 1 (toString x) == "/";
-  isHttp = x: substring 0 4 (toString x) == "http";
-in with (
-  if nixpkgs == null then import ./nix/nixpkgs.nix
-  else if isHttp nixpkgs then import (fetchTarball nixpkgs)
-  else if isPath nixpkgs then import nixpkgs
-  else throw "Invalid nixpkgs configuration for '${toString nixpkgs}'! (try a path, http URL, or 'null')"
-) { config = pkgConfig; };
+with (import ./nix/bootstrap.nix { inherit nixpkgs config system; });
 
 let
   versionInfo = lib.splitString "\n" (lib.fileContents ./.version);

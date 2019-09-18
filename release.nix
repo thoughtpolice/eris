@@ -4,7 +4,7 @@
 }:
 
 let
-  pkgs = import ./nix/nixpkgs.nix { inherit config; };
+  pkgs = import ./nix/bootstrap.nix { inherit config; };
 
   jobs = rec {
     eris = import ./. { nixpkgs = pkgs.path; eris = repo; inherit officialRelease; };

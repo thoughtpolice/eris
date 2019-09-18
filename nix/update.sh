@@ -1,6 +1,5 @@
 #! /usr/bin/env nix-shell
 #! nix-shell -i bash -p jq curl
-#! nix-shell -I nixpkgs=https://github.com/NixOS/nixpkgs-channels/archive/nixos-18.09.tar.gz
 
 ## Utility to automatically update nixpkgs.json quickly and easily from either
 ## the Nixpkgs upstream or a custom fork. Runs interactively using `nix-shell`
@@ -8,8 +7,8 @@
 set -e
 
 API="https://api.github.com/repos"
-REPO="nixpkgs"
-BRANCH="master"
+REPO="nixpkgs-channels"
+BRANCH="nixpkgs-unstable"
 URL="https://github.com/nixos/${REPO}"
 
 if [[ "x$1" == "x" ]]; then
