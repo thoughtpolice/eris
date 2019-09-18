@@ -26,13 +26,13 @@ in
       };
 
       ipAddressAllow = mkOption {
-        type = types.nullOr types.string;
+        type = types.nullOr types.str;
         default = null;
         description = "List of IP addresses to allow to the listening ports";
       };
 
       ipAddressDeny = mkOption {
-        type = types.nullOr types.string;
+        type = types.nullOr types.str;
         default = null;
         description = "List of IP addresses to deny to the listening ports";
       };
