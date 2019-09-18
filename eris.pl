@@ -370,7 +370,7 @@ group {
   # quickly want to automatically fetch/import keys
   get '/public-key' => sub ($c) {
     return $c->render(format => 'txt', text => "No public key configured\n", status => 404)
-        unless $sign_pk;
+      unless $sign_pk;
 
     $c->render(format => 'txt', text => "$sign_pk\n");
   };
@@ -528,8 +528,6 @@ helper nixhash => sub ($c) {
 
 # Main .narinfo handler logic.
 get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
-  $c->timing->begin('narinfo');
-
   # Always fetch upstream results if asked. Otherwise, query the store, and
   # optionally pass thru to an upstream if that fails.
   return $c->fetch_upstream('text/x-nix-narinfo') if $always_use_upstream;
@@ -537,13 +535,9 @@ get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
   return $c->handle_miss('text/x-nix-narinfo') unless $storePath;
 
   # query
-  $c->timing->begin('nar_query');
   app->log->debug("path query: $storePath");
   my ($drv, $narhash, $time, $size, $refs) = queryPathInfo($storePath, 1);
-  my $elapsed_query = $c->timing->elapsed('nar_query');
-  $c->timing->server_timing('nar_query_time', "Path Query", $elapsed_query);
 
-  $c->timing->begin('nar_info');
   my @res = (
     "StorePath: $storePath",
     "URL: nar/$hash.nar",
@@ -566,28 +560,17 @@ get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
       push(@res, "System: $drvpath->{platform}");
     }
   }
-  my $elapsed_info = $c->timing->elapsed('nar_info');
-  $c->timing->server_timing('nar_info_time', "Build information", $elapsed_info);
 
   # Include a signature, if configured
   if (defined $sign_sk) {
-    $c->timing->begin('signing');
-
     my $fp  = fingerprintPath($storePath, $narhash, $size, $refs);
     my $sig = signString($sign_sk, $fp);
     push @res, "Sig: $sig";
 
-    my $elapsed_sign = $c->timing->elapsed('signing');
-    $c->timing->server_timing('signing', "Ed25519 signing", $elapsed_sign);
   }
 
   push @res, ""; # extra newline, so CURL/etc look nice
   my $narinfo = join "\n", @res;
-
-  my $elapsed_total = $c->timing->elapsed('narinfo');
-  my $rps = $c->timing->rps($elapsed_total);
-  app->log->debug("Elapsed query time for $hash.narinfo: ${elapsed_total}s (~ $rps/s)");
-  $c->timing->server_timing('total', "Total request time", $elapsed_total);
 
   $c->res->headers->content_length(length($narinfo));
   $c->render(format => 'narinfo', text => $narinfo);
