@@ -282,19 +282,21 @@ if ($upstream_host_valid) {
   }
 
   $resign_pubkey = $upstream->query->param('public_key');
-  if ($resign_upstream_narinfos && !$resign_pubkey) {
-    if (!$upstream->query->param('resign_unsafe')) {
-      app->log->warn("resigning configured for '".$upstream->host."', but no public key set!");
-      app->log->warn("this is HIGHLY UNSAFE, so disabling. set 'resign_unsafe=1' to bypass!");
-      $resign_upstream_narinfos = 0;
+  if ($resign_upstream_narinfos) {
+    if (!$resign_pubkey) {
+      if (!$upstream->query->param('resign_unsafe')) {
+        app->log->warn("resigning configured for '".$upstream->host."', but no public key set!");
+        app->log->warn("this is HIGHLY UNSAFE, so disabling. set 'resign_unsafe=1' to bypass!");
+        $resign_upstream_narinfos = 0;
+      } else {
+        app->log->warn("resigning configured for '".$upstream->host."', but no public key set, and unsafe mode enabled!");
+        app->log->warn("THIS IS HIGHLY UNSAFE! YOU SHOULD CONFIGURE AN UPSTREAM PUBLIC KEY");
+        $resigning_unsafe = 1;
+      }
     } else {
-      app->log->warn("resigning configured for '".$upstream->host."', but no public key set, and unsafe mode enabled!");
-      app->log->warn("THIS IS HIGHLY UNSAFE! YOU SHOULD CONFIGURE AN UPSTREAM PUBLIC KEY");
-      $resigning_unsafe = 1;
+      # We use the key name later on to do a lookup
+      ($resign_keyname, $resign_key64) = +(split /:/, $resign_pubkey);
     }
-  } else {
-    # We use the key name later on to do a lookup
-    ($resign_keyname, $resign_key64) = +(split /:/, $resign_pubkey);
   }
 
   # unset the parameters
@@ -377,7 +379,7 @@ group {
 };
 
 ## -----------------------------------------------------------------------------
-## -- Eris API routes: these are Nix-required routes for an HTTP cache
+## -- Eris API routes: basic cache info
 
 die "Priority setting must be a number!"
   unless looks_like_number(app->config->{priority});
@@ -390,6 +392,42 @@ get '/nix-cache-info' => {
     "Priority: " . app->config->{priority},
     "",
   ),
+};
+
+## -----------------------------------------------------------------------------
+## -- Fetching upstream objects
+
+helper parse_narinfo => sub ($c, $body) {
+  my $hash = {};
+
+  $hash->{References} = [ ];
+  $hash->{Sig} = [ ];
+
+  while ($body =~ /(.*): (.*)/g) {
+    if ($1 eq 'References') {
+      push @{ $hash->{References} }, (split /\s/, $2);
+    }
+    elsif ($1 eq 'Sig') {
+      push @{ $hash->{Sig} }, $2;
+    }
+    elsif ($1 eq 'NarSize' || $1 eq 'FileSize') {
+      # contextualize narinfo value as an int
+      $hash->{"$1"} = ($2 + 0);
+    }
+    else {
+      $hash->{"$1"} = $2;
+    }
+  }
+
+  # we need to do two things: first, fingerprintPath expects an array ref
+  # instead of a direct array for the references, so we need to wrap the whole
+  # thing with [ ... ] and put it in a scalar. second, narinfos must serve
+  # 'References:' entries WITHOUT the store path attached, but fingerprintPath
+  # REQUIRES the store path is prefixed. so: split into an array, add the
+  # store path prefix, and return a ref.
+  $hash->{References} = [ map { "$Nix::Config::storeDir/$_" } @{ $hash->{References} } ];
+
+  return $hash;
 };
 
 my $our_user = new Mojo::UserAgent->new;
@@ -405,14 +443,16 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
   my $prefix = defined($info) ? "$info: " : '';
   app->log->debug($prefix.'fetching upstream object '.$path);
 
-  my $upstream_url = Mojo::URL->new($path)->to_abs($upstream);
+  my $upstream_url = Mojo::URL->new($path);
+  $upstream_url->query('');
+  $upstream_url = $upstream_url->to_abs($upstream);
+
   my $tx = $our_user->build_tx(GET => $upstream_url => {
     Accept => $ctype,
   });
 
-  # if we're not serving narinfos, or we don't configure re-signing,
-  # then just return the fetched promise
-  unless ($c->stash('format') eq 'narinfo' && $resign_upstream_narinfos) {
+  # if we're not serving narinfos, then just proxy the object
+  unless ($c->stash('format') eq 'narinfo') {
     $tx->res->content->once(body => sub ($stx) {
       $c->res->headers->content_type('application/x-nix-archive');
       $c->res->headers->content_length($tx->res->headers->content_length);
@@ -426,8 +466,8 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
     return $our_user->start($tx);
   }
 
-  # otherwise, fetch the whole narinfo and append another signature
-  app->log->debug("fetching narinfo and attempting to resign with key '$sign_host'");
+  # otherwise, fetch the whole narinfo
+  app->log->debug("fetching upstream narinfo");
   return $our_user->start_p($tx)->then(sub ($mtx) {
     # exit immediately for non-200 resps
     if ($mtx->result->code != 200) {
@@ -439,56 +479,66 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
       );
     }
 
-    # ok: clean up the body for our purposes
     my $body = $mtx->result->body;
-    chomp $body; # keeps the results looking neat
+    chomp $body;
 
-    # nab the necessary signature values
-    my ($narpath) = $body =~ /StorePath: (.*)/;
-    my ($narhash) = $body =~ /NarHash: (.*)/;
-    my ($narsize) = $body =~ /NarSize: (.*)/;
-    my ($narrefs) = $body =~ /References: (.*)/;
+    my $narinfo = $c->parse_narinfo($body);
+    my $signature = undef;
 
-    # NB: references can be empty, so don't bail if they are. but everything
-    # else is mandatory
-    unless ($narpath && $narhash && $narsize) {
-      app->log->error("could not parse narinfo for valid signature!");
-      return $c->render(format => 'txt', text => '404', status => 404);
-    }
+    if ($resign_upstream_narinfos) {
+      app->log->debug("attempting to resign with key for '$sign_host'");
 
-    # we need to do two things: first, fingerprintPath expects an array ref
-    # instead of a direct array for the references, so we need to wrap the whole
-    # thing with [ ... ] and put it in a scalar. second, narinfos must serve
-    # 'References:' entries WITHOUT the store path attached, but fingerprintPath
-    # REQUIRES the store path is prefixed. so: split into an array, add the
-    # store path prefix, and return a ref.
-    $narrefs = [ map { "$Nix::Config::storeDir/$_" } (split /\s/, $narrefs) ];
-
-    # check upstream fingerprint validity
-    my $fp = fingerprintPath($narpath, $narhash, $narsize, $narrefs);
-
-    unless ($resigning_unsafe) {
-      my ($sig64) = $body =~ /Sig: $resign_keyname:(.*)/;
-
-      if (!$sig64) {
-        app->log->error("could not find signature for $resign_keyname on upstream narinfo!");
+      # NB: references can be empty, so don't bail if they are. but everything
+      # else is mandatory
+      if (!defined($narinfo->{StorePath}) ||
+          !defined($narinfo->{NarHash}) ||
+          !defined($narinfo->{NarSize})) {
+        app->log->error("could not parse narinfo for valid signature!");
         return $c->render(format => 'txt', text => '404', status => 404);
       }
 
-      app->log->debug("attempting to validate signature '$resign_keyname:$sig64' for '$path'...");
-      if (!checkSignature(decode_base64($resign_key64), decode_base64($sig64), $fp)) {
-        app->log->error("invalid signature '$resign_keyname:$sig64' for '$path'!");
-        return $c->render(format => 'txt', text => '404', status => 404);
+      my $fp = fingerprintPath(
+        $narinfo->{StorePath},
+        $narinfo->{NarHash},
+        $narinfo->{NarSize},
+        $narinfo->{References}
+      );
+
+      unless ($resigning_unsafe) {
+        # check upstream fingerprint validity
+        my $sig64 = (grep /$resign_keyname:/, @{ $narinfo->{Sig} })[0];
+        $sig64 = +(split /:/, $sig64)[-1];
+
+        if (!$sig64) {
+          app->log->error("could not find signature for $resign_keyname on upstream narinfo!");
+          return $c->render(format => 'txt', text => '404', status => 404);
+        }
+
+        app->log->debug("attempting to validate signature '$resign_keyname:$sig64' for '$path'...");
+        if (!checkSignature(decode_base64($resign_key64), decode_base64($sig64), $fp)) {
+          app->log->error("invalid signature '$resign_keyname:$sig64' for '$path'!");
+          return $c->render(format => 'txt', text => '404', status => 404);
+        }
+
+        app->log->debug("valid signature for $resign_keyname on upstream path $path");
       }
 
-      app->log->debug("valid signature for $resign_keyname on upstream path $path");
+      # sign, finish
+      $signature = signString($sign_sk, $fp);
     }
 
-    # sign, finish
-    my $signature = signString($sign_sk, $fp);
-    $body .= "\nSig: $signature\n";
-    $c->res->headers->content_length(length($body));
-    return $c->render(format => 'narinfo', text => $body);
+    if ($c->param('json')) {
+      push @{ $narinfo->{Sig} }, $signature
+        if defined($signature);
+
+      return $c->render(json => $narinfo);
+    } else {
+      $body .= "\nSig: $signature\n"
+        if defined($signature);
+
+      $c->res->headers->content_length(length($body));
+      return $c->render(format => 'narinfo', text => $body);
+    }
   });
 };
 
@@ -526,16 +576,7 @@ helper nixhash => sub ($c) {
 ## -----------------------------------------------------------------------------
 ## -- .narinfo handler
 
-# Main .narinfo handler logic.
-get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
-  # Always fetch upstream results if asked. Otherwise, query the store, and
-  # optionally pass thru to an upstream if that fails.
-  return $c->fetch_upstream('text/x-nix-narinfo') if $always_use_upstream;
-  my ($hash, $storePath) = $c->nixhash;
-  return $c->handle_miss('text/x-nix-narinfo') unless $storePath;
-
-  # query
-  app->log->debug("path query: $storePath");
+helper format_narinfo_txt => sub ($c, $hash, $storePath) {
   my ($drv, $narhash, $time, $size, $refs) = queryPathInfo($storePath, 1);
 
   my @res = (
@@ -566,14 +607,70 @@ get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
     my $fp  = fingerprintPath($storePath, $narhash, $size, $refs);
     my $sig = signString($sign_sk, $fp);
     push @res, "Sig: $sig";
-
   }
 
   push @res, ""; # extra newline, so CURL/etc look nice
   my $narinfo = join "\n", @res;
 
-  $c->res->headers->content_length(length($narinfo));
-  $c->render(format => 'narinfo', text => $narinfo);
+  return $narinfo;
+};
+
+helper render_narinfo_json => sub ($c, $hash, $storePath) {
+  my ($drv, $narhash, $time, $size, $refs) = queryPathInfo($storePath, 1);
+
+  my $obj = {
+    StorePath => $storePath,
+    URL => "nar/$hash.nar",
+    Compression => "none",
+    NarHash => $narhash,
+    NarSize => $size,
+  };
+
+  # Needed paths that this NAR references
+  $obj->{References} = [ map { basename $_ } @$refs ]
+    if scalar @$refs > 0;
+
+  # Derivation and system information
+  if (defined $drv) {
+    $obj->{Deriver} = basename $drv;
+
+    # Add system information, if the .drv exists for this .nar
+    if (isValidPath($drv)) {
+      my $drvpath = derivationFromPath($drv);
+      $obj->{System} = $drvpath->{platform};
+    }
+  }
+
+  # Include a signature, if configured
+  if (defined $sign_sk) {
+    my $fp  = fingerprintPath($storePath, $narhash, $size, $refs);
+    my $sig = signString($sign_sk, $fp);
+    $obj->{Sig} = [ $sig ];
+  }
+
+  return $c->render(json => $obj);
+};
+
+# Main .narinfo handler logic.
+get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
+  # Always fetch upstream results if asked. Otherwise, query the store, and
+  # optionally pass thru to an upstream if that fails.
+  return $c->fetch_upstream('text/x-nix-narinfo') if $always_use_upstream;
+  my ($hash, $storePath) = $c->nixhash;
+  return $c->handle_miss('text/x-nix-narinfo') unless $storePath;
+
+  # query
+
+  if ($c->param('json')) {
+    app->log->debug("path query: $storePath (json = YES)");
+    return $c->render_narinfo_json($hash, $storePath);
+  } else {
+    app->log->debug("path query: $storePath (json = NO)");
+
+    my $narinfo = $c->format_narinfo($hash, $storePath);
+    $c->res->headers->content_length(length($narinfo));
+    return $c->render(format => 'narinfo', text => $narinfo);
+  }
 };
 
 ## -----------------------------------------------------------------------------
