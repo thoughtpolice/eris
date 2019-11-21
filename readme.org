@@ -2,6 +2,8 @@
 
 [[https://img.shields.io/badge/version-0.1pre-blue.svg]] [[https://img.shields.io/badge/license-GPL%20(%3E%3D%203)-orange.svg]]
 
+[[https://github.com/thoughtpolice/eris/workflows/Continuous%20Integration/badge.svg]]
+
 Eris is an HTTP server and web application that can act as a "binary cache" for
 [[https://nixos.org/nix/][Nix]] -- it serves your ~/nix/store~ directory over an HTTP server to other
 clients on the network. This means they can download files from your
