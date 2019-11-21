@@ -23,7 +23,6 @@ jobs:
       uses: cachix/install-nix-action@v6
 
     - name: nix-build (for ${{ matrix.nixpkgs }})
-      run: nix-build --no-link release.nix --arg nixpkgs channel:${{ matrix.nixpkgs }}
-
-    - name: nix-build -A tests
-      run: nix-build --no-link release.nix --arg nixpkgs channel:${{ matrix.nixpkgs }} -A test
+      env:
+        NIXPKGS_CHANNEL: ${{ matrix.nixpkgs }}
+      run: which nix-build && nix-build --no-link release.nix --arg nixpkgs "channel:$NIXPKGS_CHANNEL"
