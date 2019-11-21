@@ -13,7 +13,7 @@ jobs:
 
     strategy:
       matrix:
-        nixpkgs: [ channel:lockfile, channel:nixos-19.09, channel:nixos-unstable ]
+        nixpkgs: [ lockfile, nixos-19.09, nixos-unstable ]
 
     steps:
     - name: Checkout Repository
@@ -25,4 +25,4 @@ jobs:
     - name: nix-build (for ${{ matrix.nixpkgs }})
       env:
         NIXPKGS_CHANNEL: ${{ matrix.nixpkgs }}
-      run: which nix-build && nix-build --no-link release.nix --arg nixpkgs "$NIXPKGS_CHANNEL"
+      run: which nix-build && nix-build --no-link release.nix --arg nixpkgs "channel:$NIXPKGS_CHANNEL"
