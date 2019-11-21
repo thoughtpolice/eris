@@ -1,13 +1,24 @@
 { repo ? builtins.fetchGit ./.
+, versionFile ? ./.version
 , officialRelease ? false
+
+, nixpkgs ? null
 , config ? {}
+, system ? builtins.currentSystem
 }:
 
 let
-  pkgs = import ./nix/bootstrap.nix { inherit config; };
+  bootstrap = import ./nix/bootstrap.nix {
+    inherit nixpkgs config system;
+    inherit repo officialRelease versionFile;
+  };
+in
+
+let
+  pkgs = bootstrap.pkgs;
 
   jobs = rec {
-    eris = import ./. { nixpkgs = pkgs.path; eris = repo; inherit officialRelease; };
+    eris = import ./. { nixpkgs = pkgs.path; inherit repo officialRelease; };
     test = import ./test.nix { nixpkgs = pkgs; };
 
     docker = with pkgs;

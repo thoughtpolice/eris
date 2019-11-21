@@ -1,25 +1,26 @@
-{ eris ? builtins.fetchGit ./.
+{ repo ? builtins.fetchGit ./.
+, versionFile ? ./.version
 , officialRelease ? false
+
 , nixpkgs ? null
 , config ? {}
 , system ? builtins.currentSystem
 }:
 
 with builtins;
-with (import ./nix/bootstrap.nix { inherit nixpkgs config system; });
 
 let
-  versionInfo = lib.splitString "\n" (lib.fileContents ./.version);
-  basever = elemAt versionInfo 0;
-  relname = elemAt versionInfo 1;
-
-  vsuffix = lib.optionalString (!officialRelease)
-    "pre${toString eris.revCount}_${eris.shortRev}";
-  version = "${basever}${vsuffix}";
+  bootstrap = import ./nix/bootstrap.nix {
+    inherit nixpkgs config system;
+    inherit repo officialRelease versionFile;
+  };
 in
+
+with bootstrap.pkgs;
+
 stdenv.mkDerivation rec {
   pname = "eris";
-  inherit version relname;
+  inherit (bootstrap) version relname;
 
   src = lib.cleanSource ./.;
 
