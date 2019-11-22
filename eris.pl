@@ -667,7 +667,7 @@ get '/:hash' => [ format => [ 'narinfo' ] ] => sub ($c) {
   } else {
     app->log->debug("path query: $storePath (json = NO)");
 
-    my $narinfo = $c->format_narinfo($hash, $storePath);
+    my $narinfo = $c->format_narinfo_txt($hash, $storePath);
     $c->res->headers->content_length(length($narinfo));
     return $c->render(format => 'narinfo', text => $narinfo);
   }
