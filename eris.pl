@@ -527,6 +527,10 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
       $signature = signString($sign_sk, $fp);
     }
 
+    # Add server push header, like in the local case.
+    $c->res->headers->header('Nix-Link' => "/$narinfo->{URL}");
+
+    # Finally, render it in the form requested.
     if ($c->param('json')) {
       push @{ $narinfo->{Sig} }, $signature
         if defined($signature);
@@ -586,6 +590,16 @@ helper format_narinfo_txt => sub ($c, $hash, $storePath) {
     "NarHash: $narhash",
     "NarSize: $size",
   );
+
+  # Add headers for Server Push experiments. This header is non-standard, but
+  # is only meant to be consumed by Nix or other Nix-aware software -- we don't
+  # want it to be triggered in a browser if someone just visits a .narinfo
+  # file. One of the primary motivators here is that it's useful for
+  # cache.nixos.org: Fastly configurations that want to just pull the preload
+  # URL out of a header without parsing the 'Link:' header manually. The
+  # intent is that Fastly's `h2.push()` function can be used directly on the
+  # content included here.
+  $c->res->headers->header('Nix-Link' => "/nar/$hash.nar");
 
   # Needed paths that this NAR references
   push(@res, "References: " . join(" ", map { basename $_ } @$refs))
