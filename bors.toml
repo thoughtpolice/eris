@@ -1,0 +1,20 @@
+status = [ "Build and Test Job%" ]
+block_labels = [ "S-wip", "S-nomerge" ]
+pr_status = [ "DCO" ]
+
+delete_merged_branches = true
+timeout_sec = 7200 # two hours
+
+## [NOTE] (aseipp): these can't be enabled because you can't self-review or
+## self-approve things you're a codeowner of, and bors does not like that...
+
+# required_approvals = 1
+# use_codeowners = true
+
+## [NOTE] (aseipp): squash merge would be nice, but unfortunately it does
+## nuke any GPG signatures you might have (somewhat annoying), but it also
+## leaves the signed-off-by lines as well, which is what I really hate; in
+## theory bors should be able to do this all on its own properly, but...
+## sigh...
+
+use_squash_merge = false

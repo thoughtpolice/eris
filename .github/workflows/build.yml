@@ -3,7 +3,8 @@ name: Continuous Integration
 on:
   push:
     branches:
-    - master
+    - staging
+    - trying
 
 jobs:
   build:
