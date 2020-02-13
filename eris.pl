@@ -253,7 +253,7 @@ my $always_use_upstream = 0;
 # ensure the upstream host has a valid nix-cache-info
 my $upstream_host_valid = 0;
 if (defined($upstream->host)) {
-  app->log->info("upstream host configured, attempting nix-cache-info ping...");
+  app->log->info("upstream configured, attempting nix-cache-info ping...");
 
   my $ua = new Mojo::UserAgent->new;
   $ua->transactor->name("Eris/$Eris::VERSION");
@@ -262,7 +262,7 @@ if (defined($upstream->host)) {
 
   my ($upstreamStoreDir) = $body =~ /StoreDir: (.*)/;
   if ($upstreamStoreDir eq $Nix::Config::storeDir) {
-    app->log->info("OK: upstream has StoreDir=$upstreamStoreDir");
+    app->log->info("upstream: ok, StoreDir=$upstreamStoreDir");
     $upstream_host_valid = 1;
   } else {
     app->log->error("FAIL: upstream has StoreDir=$upstreamStoreDir, incompatible with $Nix::Config::storeDir!");
