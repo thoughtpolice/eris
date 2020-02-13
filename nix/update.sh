@@ -7,9 +7,15 @@
 set -e
 
 API="https://api.github.com/repos"
-REPO="nixpkgs-channels"
-BRANCH="nixpkgs-unstable"
-URL="https://github.com/nixos/${REPO}"
+ORG=${ORG:-"nixos"}
+REPO=${REPO:-"nixpkgs-channels"}
+BRANCH=${BRANCH:-"nixpkgs-unstable"}
+URL="https://github.com/${ORG}/${REPO}"
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+[ ! -e "$SCRIPT_DIR/nixpkgs.json" ] && \
+  >&2 echo "ERROR: nixpkgs.json must be located next to this update script!" && \
+  exit 1
 
 if [[ "x$1" == "x" ]]; then
   echo -n "No revision, so grabbing latest upstream Nixpkgs master commit... "
@@ -30,7 +36,7 @@ DOWNLOAD="$URL/archive/$REV.tar.gz"
 echo "Updating to nixpkgs revision ${REV:0:6} from $URL"
 SHA256=$(nix-prefetch-url --unpack "$DOWNLOAD")
 
-cat > $(git rev-parse --show-toplevel)/nix/nixpkgs.json <<EOF
+cat > "$SCRIPT_DIR/nixpkgs.json" <<EOF
 {
   "url":    "$DOWNLOAD",
   "rev":    "$REV",

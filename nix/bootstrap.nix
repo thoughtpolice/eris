@@ -57,10 +57,7 @@ let
 
   # import logic
   pkgSource =
-    # Default case: a specified package set, located in nixpkgs.json, next to
-    # this file. We also handle the case that the user gives the word
-    # 'channel:lockfile'. Why? This is just so that the results in CI pipelines
-    # look nicer instead of weirdly passing 'null'
+    # Default case: a specified package set, located in nixpkgs.json, next to this file.
     if (nixpkgs == null || nixpkgs == "channel:lockfile") then (
       if pathExists lockFile == false
       then throw "Error: you specified 'nixpkgs = null', implying you have a lock file (located in ${toString lockFile}), but it doesn't exist!"
@@ -81,12 +78,20 @@ let
     # Otherwise, this is invalid
     else throw "Invalid nixpkgs configuration for '${toString nixpkgs}'! (try a path, http URL, or 'null')";
 
-  pkgs = import pkgSource { inherit config system; };
+  overlays =
+    let
+      files = builtins.filter (f:
+        let ext = builtins.substring (builtins.stringLength f - 4) 4 f;
+        in ext == ".nix"
+      ) (builtins.attrNames (builtins.readDir ./overlays));
+    in builtins.map (x: import (./. + "/overlays/${x}")) files;
+
+  pkgs = import pkgSource { inherit config system overlays; };
 
   versionInfo = pkgs.lib.splitString "\n" (pkgs.lib.fileContents versionFile);
   basever = builtins.elemAt versionInfo 0;
   vsuffix = pkgs.lib.optionalString (!officialRelease)
-    "pre${toString repo.revCount}_${repo.shortRev}";
+    "+${toString repo.revCount}-g${repo.shortRev}";
 
   relname = builtins.elemAt versionInfo 1;
   version = "${basever}${vsuffix}";
