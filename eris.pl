@@ -731,7 +731,7 @@ group {
     $c->timing->begin('nar_stream');
 
     $stream->on(read => sub ($s, $bytes) {
-      return $c->write_chunk($bytes);
+      return $c->write($bytes);
     });
 
     # record timing info when the stream is finished and close the connection
