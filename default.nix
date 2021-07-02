@@ -78,7 +78,7 @@ stdenv.mkDerivation rec {
     EOF
   '';
 
-  meta = with stdenv.lib; {
+  meta = with lib; {
     description = "A binary cache server for Nix";
     homepage    = https://github.com/thoughtpolice/eris;
     license     = licenses.gpl3Plus;
