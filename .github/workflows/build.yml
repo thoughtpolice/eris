@@ -20,6 +20,8 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v2
+      with:
+        fetch_depth: 0
 
     - name: Install Nix
       uses: cachix/install-nix-action@v13
