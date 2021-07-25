@@ -1,40 +1,33 @@
-{ repo ? builtins.fetchGit ./.
-, versionFile ? ./.version
-, officialRelease ? false
-
-, nixpkgs ? null
-, config ? {}
-, system ? builtins.currentSystem
+{ stdenv
+, lib
+, perl
+, nix
+, glibcLocales
+, Mojolicious
+, MojoliciousPluginStatus
+, IOSocketSSL
+, DBI
+, DBDSQLite
+, xz
+, bzip2
 }:
-
-with builtins;
-
-let
-  bootstrap = import ./nix/bootstrap.nix {
-    inherit nixpkgs config system;
-    inherit repo officialRelease versionFile;
-  };
-in
-
-with bootstrap.pkgs;
 
 stdenv.mkDerivation rec {
   pname = "eris";
-  inherit (bootstrap) version relname;
+  version = "0.1";
 
   src = lib.cleanSource ./.;
 
-  buildInputs =
-    [ perl nix nix.perl-bindings glibcLocales
-    ] ++ (with perlPackages;
-    [ Mojolicious MojoliciousPluginStatus IOSocketSSL
-      DBI DBDSQLite
-    ]);
+  buildInputs = [
+    perl nix nix.perl-bindings glibcLocales
+    Mojolicious MojoliciousPluginStatus IOSocketSSL
+    DBI DBDSQLite
+  ];
 
   outputs = [ "out" "man" ];
 
   unpackPhase = ":";
-  installPhase = with perlPackages; ''
+  installPhase = ''
     mkdir -p \
       $out/bin $out/libexec $out/lib/systemd/system \
       $man/share/man/man8/
@@ -58,7 +51,7 @@ stdenv.mkDerivation rec {
     # Set up accurate version information, xz utils
     substituteInPlace $out/libexec/eris.pl \
       --replace '"0xERISVERSION"' '"${version}"' \
-      --replace '"0xERISRELNAME"' '"${relname}"' \
+      --replace '"0xERISRELNAME"' '"Developer edition"' \
       --replace '"xz"'        '"${xz.bin}/bin/xz"' \
       --replace '"bzip2"'     '"${bzip2.bin}/bin/bzip2"'
 
@@ -80,7 +73,7 @@ stdenv.mkDerivation rec {
 
   meta = with lib; {
     description = "A binary cache server for Nix";
-    homepage    = https://github.com/thoughtpolice/eris;
+    homepage    = "https://github.com/thoughtpolice/eris";
     license     = licenses.gpl3Plus;
     platforms   = platforms.linux;
     maintainers = [ maintainers.thoughtpolice ];

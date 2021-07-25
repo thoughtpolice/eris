@@ -6,7 +6,7 @@ with lib;
 let
   cfg = config.services.eris-git;
 
-  eris = import ./. { nixpkgs = pkgs.path; };
+  eris = pkgs.perlPackages.callPackage ./. { };
 in
 {
   options = {
