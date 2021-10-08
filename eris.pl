@@ -537,8 +537,12 @@ helper fetch_upstream => sub ($c, $ctype, $info=undef) {
 
       return $c->render(json => $narinfo);
     } else {
-      $body .= "\nSig: $signature\n"
+      $body .= "\nSig: $signature"
         if defined($signature);
+
+      # always add a newline, signature or not. see issue #15 where
+      # this bug broke the nix client
+      $body .= "\n";
 
       $c->res->headers->content_length(length($body));
       return $c->render(format => 'narinfo', text => $body);
