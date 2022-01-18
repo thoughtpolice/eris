@@ -329,6 +329,8 @@ with:
 }
 #+END_SRC
 
+The host attribute can be omitted when the private key is in the form of ~host:key~.
+
 *** Support for private users via HTTP authentication
 
 You can add support for basic HTTP authentication via the ~users~ field in

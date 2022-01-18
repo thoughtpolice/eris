@@ -206,10 +206,10 @@ my ($sign_host, $sign_pk, $sign_sk) = (undef, undef, undef);
 
 ## Case 1: user-specified keys
 if (ref(app->config->{signing}) eq 'HASH') {
-  $sign_host = app->config->{signing}->{host};
   $sign_sk = readFile app->config->{signing}->{private};
   chomp $sign_sk; # readFile doesn't do this itself
 
+  $sign_host      = app->config->{signing}->{host} // (split(/:/, $sign_sk))[0];
   my $sign_sk64   = +(split /:/, $sign_sk)[-1];
   my $sign_skno64 = decode_base64($sign_sk64);
 
